@@ -7,11 +7,24 @@
 - **Phase 2 (UI Shell)**: ✅ Completed
 - **Phase 3 (Holdings CRUD)**: ✅ Completed
 - **Phase 4 (Transactions & Cash UI)**: ✅ Completed
-- **Phase 5 (Monthly Plan UI)**: 🔜 Next — start here
-- **Phase 6 (Dashboard)**: ⏳ Pending
-- **Phase 7 (Polish)**: ⏳ Pending
+- **Phase 5 (Monthly Plan UI)**: ✅ Completed
+- **Phase 6 (Dashboard)**: ✅ Completed
+- **Phase 7 (Polish)**: ✅ Completed
 
-## 📍 Handoff Notes (2026-04-14)
+## 📍 Handoff Notes (2026-04-14) — v0.1 RELEASED
+
+All phases complete. See `HANDOVER.md` for the full current state.
+
+**Post-v0.1 additions (not in original plan):**
+- Multi-account cash (`CashAccount` type, `upsertCashAccount`, `deleteCashAccount`, `renameCashAccountAction`)
+- Cash tab migration route (`/api/setup/migrate-cash`)
+- `/setup` page — credential entry, connection test, sheet provisioning
+- Ex-cash allocation toggle on dashboard (`DashboardClient`)
+- `RefreshButton` — client-side price refresh via `router.refresh()`
+- `TICKER_NAME` map in constants with Yahoo Finance verified names
+- `formatShares()`, `formatDate()`, `formatDateTime()` in `src/lib/fx.ts`
+- Logo, favicon, dark nav, logo-derived color scheme
+- 0dp formatting for Value (local), Value (SGD), Gain/Loss columns
 
 **Resume at Phase 5.** All Phase 4 tasks are fully implemented and verified:
 - `src/components/transaction-form.tsx` — complete with currency auto-fill, `useTransition` loading state, client-side validation

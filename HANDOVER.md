@@ -1,114 +1,106 @@
-# Wellspring — Kiro Handover Document
+# Wellspring — Handover Document
 
 ## What This Project Is
 
 Personal SGD-denominated investment portfolio tracker. Web app backed by Google Sheets (no database). Market data from Yahoo Finance. Built with Next.js 16.2.3 App Router, TypeScript, Tailwind CSS v4.
 
-**Full spec:** `SPEC.md` — authoritative source of truth for all requirements.
-**Implementation plan:** `PLAN.md` — phased breakdown with acceptance criteria.
-**Next.js conventions:** `AGENTS.md` — read this before writing any Next.js code. This is Next.js 16, not the version you know from training data.
+**Full spec:** `SPEC.md`
+**Implementation plan:** `PLAN.md`
+**Next.js conventions:** `AGENTS.md` — read before writing any Next.js code. This is Next.js 16, not the version you know from training data.
 
 ---
 
-## Current State (as of 2026-04-14)
+## Current State — v0.1 (2026-04-14) — COMPLETE
+
+All phases are fully implemented and committed to `main` / tagged `v0.1`.
 
 ### What exists and works
 
-**Data layer — complete:**
-- `src/types/index.ts` — all shared TypeScript interfaces
-- `src/lib/constants.ts` — tickers, FX pairs, sheet names, fallback rates
-- `src/lib/fx.ts` — `toSGD()` currency converter + `formatSGD()` formatter
-- `src/lib/google-sheets.ts` — full Sheets CRUD (holdings, cash, transactions, plan, FX rates)
-- `src/lib/yahoo-finance.ts` — price + FX fetch with 3-tier fallback
-- `src/lib/portfolio.ts` — pure `computePortfolioSnapshot()` + `computeNewAvgCost()`
+**Data layer**
+- `src/types/index.ts` — all shared TypeScript interfaces including `CashAccount`, updated `CashPosition`
+- `src/lib/constants.ts` — tickers, FX pairs, sheet names, fallback rates, `TICKER_NAME` map
+- `src/lib/fx.ts` — `toSGD()`, `formatSGD()`, `formatShares()`, `formatDate()`, `formatDateTime()`
+- `src/lib/google-sheets.ts` — full Sheets CRUD; cash now supports multiple accounts via `upsertCashAccount()` / `deleteCashAccount()`
+- `src/lib/yahoo-finance.ts` — price + FX fetch with 3-tier fallback (live → cached sheet → hardcoded)
+- `src/lib/portfolio.ts` — `computePortfolioSnapshot()` + `computeNewAvgCost()`
 
-**Server Actions — complete:**
-- `src/app/lib/actions.ts` — `upsertHoldingAction`, `deleteHoldingAction`, `logTransactionAction` (handles avg cost recalc + holding deletion on full sell), `updateCashAction`, `updatePlanAction`
+**Server Actions** (`src/app/lib/actions.ts`)
+- `upsertHoldingAction`, `deleteHoldingAction`
+- `logTransactionAction` — BUY recalculates avg cost; SELL reduces shares, deletes holding if zero
+- `updateCashAction`, `upsertCashAccountAction`, `deleteCashAccountAction`, `renameCashAccountAction`
+- `updatePlanAction`
 
-**API Routes — only portfolio:**
-- `src/app/api/portfolio/route.ts` — GET, returns full `PortfolioSnapshot`
+**API Routes**
+- `GET/POST /api/holdings`
+- `GET/PUT/DELETE /api/holdings/[ticker]`
+- `GET/PUT /api/cash`
+- `GET/POST /api/transactions`
+- `GET/PUT /api/plan`
+- `GET /api/prices`
+- `GET /api/portfolio`
+- `POST /api/setup/test` — validates credentials + checks tabs
+- `POST /api/setup/provision` — creates missing tabs with headers
+- `POST /api/setup/save` — writes `.env.local`
+- `POST /api/setup/migrate-cash` — converts old Cash tab format to multi-account format
 
-**UI Shell — complete:**
-- `src/app/layout.tsx`, `src/app/page.tsx` (redirects to /dashboard)
-- `src/components/nav.tsx`
-- `src/components/ui/` — card, button, input, label, select, stat
+**Pages**
+- `/` → redirects to `/dashboard`
+- `/dashboard` — full portfolio view with refresh button and ex-cash allocation toggle
+- `/holdings` — list with edit/delete; `/holdings/new`; `/holdings/[ticker]`
+- `/transactions` — list with BUY/SELL badges; `/transactions/new`
+- `/cash` — multi-account cash management (add, edit name+amount, delete)
+- `/plan` — monthly investment plan editor with reactive total
+- `/setup` — credential entry, connection test, sheet provisioning, cash migration
 
-**Transactions UI — complete:**
-- `src/app/transactions/page.tsx` — list with BUY/SELL colour badges
-- `src/app/transactions/new/page.tsx`
-- `src/components/transaction-form.tsx`
+**Components**
+- `PortfolioSummary` — total value, stale banner, FX rate pills
+- `HoldingsTable` — per-holding table, cash row, grand total; 0dp for value/gain columns
+- `AllocationChart` — hand-rolled SVG donut using path arcs (not stroke-dasharray); logo-derived color palette
+- `PlanSummary` — target vs current allocation
+- `DashboardClient` — client wrapper owning the ex-cash toggle; re-computes allocations client-side
+- `RefreshButton` — calls `router.refresh()` to re-fetch live prices
+- `HoldingForm`, `TransactionForm`, `CashForm`, `PlanForm`
+- `Nav` — dark slate-900 nav with logo, active link highlighting
 
-**Cash UI — complete:**
-- `src/app/cash/page.tsx`
-- `src/components/cash-form.tsx`
-
-**Partial Phase 7 files (at wrong paths — see note below):**
-- `src/app/error.tsx` — content is a dashboard error boundary (should be at `src/app/dashboard/error.tsx`)
-- `src/app/loading.tsx` — content is a holdings loading skeleton (should be at `src/app/holdings/loading.tsx`)
+**Error / Loading boundaries**
+- `src/app/error.tsx` — root error boundary
+- `src/app/dashboard/error.tsx` — dashboard-specific error boundary
+- `src/app/dashboard/loading.tsx` — dashboard skeleton
+- `src/app/holdings/loading.tsx` — holdings skeleton
 
 ---
 
-### What is missing (needs to be built)
+## Google Sheets Tab Structure
 
-#### API Routes (Phase 1)
-All six of these are missing. They are thin wrappers over the already-complete `src/lib/google-sheets.ts` functions.
+Five tabs. Row 1 = header. Data starts at row 2.
 
-| File | Methods |
+| Tab | Columns |
 |---|---|
-| `src/app/api/holdings/route.ts` | GET (list), POST (upsert) |
-| `src/app/api/holdings/[ticker]/route.ts` | GET (single), PUT (update), DELETE |
-| `src/app/api/cash/route.ts` | GET, PUT |
-| `src/app/api/transactions/route.ts` | GET (with optional `?ticker=` param), POST |
-| `src/app/api/plan/route.ts` | GET, PUT |
-| `src/app/api/prices/route.ts` | GET |
+| `Holdings` | A:ticker B:name C:shares D:avg_cost_local E:currency |
+| `Cash` | A:account B:currency C:amount |
+| `Transactions` | A:id B:date C:ticker D:type E:shares F:price_local G:currency |
+| `MonthlyPlan` | A:ticker B:target_sgd |
+| `FxRates` | A:pair B:rate C:fetched_at |
 
-See PLAN.md Phase 1 and SPEC.md §7 for exact request/response shapes.
+> The Cash tab changed from the original spec (`currency, amount`) to (`account, currency, amount`) to support multiple accounts. The `/api/setup/migrate-cash` route handles migration from the old format. `getCash()` auto-detects both formats for backwards compatibility.
 
-#### Holdings UI (Phase 3)
-The entire holdings folder is missing.
+---
 
-| File | Description |
-|---|---|
-| `src/app/holdings/page.tsx` | List all holdings; Edit link per row; Delete button (Server Action); "Add Holding" button |
-| `src/app/holdings/new/page.tsx` | Server Component wrapping `<HoldingForm action={upsertHoldingAction} />` |
-| `src/app/holdings/[ticker]/page.tsx` | Server Component — `await params`, load holding, `notFound()` if missing, render `<HoldingForm holding={holding} .../>` |
+## Holdings in Scope
 
-`src/components/holding-form.tsx` **already exists** — don't recreate it.
+| Ticker | Name | Exchange | Currency |
+|---|---|---|---|
+| BRK-B | Berkshire Hathaway Inc. | NYSE | USD |
+| JK8.SI | UOBAM FTSE China A50 Index ETF | SGX | SGD |
+| 2823.HK | iShares FTSE A50 China Index ETF | HKEX | HKD |
+| 2838.HK | Hang Seng FTSE China 50 Index ETF | HKEX | HKD |
+| CASH | Cash (SGD) | — | SGD |
 
-#### Monthly Plan UI (Phase 5)
-
-| File | Description |
-|---|---|
-| `src/components/plan-form.tsx` | `'use client'` — table of all 5 tickers with `targetSGD` inputs, reactive total row, calls `updatePlanAction` |
-| `src/app/plan/page.tsx` | Server Component — `await getMonthlyPlan()`, render `<PlanForm>` |
-
-All 5 tickers must always appear (BRK-B, JK8.SI, 2823.HK, 2838.HK, CASH). Missing tickers default to `targetSGD: 0`.
-
-#### Dashboard (Phase 6)
-The most complex phase. The page directly calls server functions (no HTTP fetch to `/api/portfolio`).
-
-| File | Description |
-|---|---|
-| `src/components/portfolio-summary.tsx` | Server Component — total value, last fetched, stale banner, FX badges |
-| `src/components/holdings-table.tsx` | Server Component — per-holding table + cash row + grand total footer |
-| `src/components/allocation-chart.tsx` | `'use client'` — pure SVG donut chart, no external library |
-| `src/components/plan-summary.tsx` | Server Component — plan targets vs current allocation |
-| `src/app/dashboard/page.tsx` | Server Component — `Promise.all` all data sources, `computePortfolioSnapshot`, render all four components above |
-
-#### Error / Loading boundaries (Phase 7, fix paths)
-Move or recreate at the correct paths:
-
-| Correct path | Notes |
-|---|---|
-| `src/app/dashboard/error.tsx` | Content already written at `src/app/error.tsx` — move/copy it |
-| `src/app/dashboard/loading.tsx` | Needs to be created (dashboard-specific skeleton) |
-| `src/app/holdings/loading.tsx` | Content already written at `src/app/loading.tsx` — move/copy it |
+FX pairs: `USDSGD=X`, `HKDSGD=X`
 
 ---
 
 ## Critical Next.js 16 Rules
-
-These differ from what the model likely knows from training data. **Violating these causes runtime errors.**
 
 1. **`params` is a Promise** in dynamic routes — always `await` it:
    ```ts
@@ -116,121 +108,49 @@ These differ from what the model likely knows from training data. **Violating th
      const { ticker } = await params;
    }
    ```
-
-2. **`export const dynamic = 'force-dynamic'`** must appear at the top of every `route.ts` file and on `src/app/dashboard/page.tsx`. Market data must not be statically pre-rendered.
-
-3. **Route Handlers use Web APIs** — `Request` and `Response.json(...)`, not `NextApiRequest`/`NextApiResponse`.
-
-4. **No `use cache` directive** — `cacheComponents` is not enabled.
-
-5. **No `getServerSideProps`/`getStaticProps`** — App Router only.
+2. **`export const dynamic = 'force-dynamic'`** on every `route.ts` and `dashboard/page.tsx`
+3. **Route Handlers use Web APIs** — `Request` / `Response.json(...)`, not `NextApiRequest`/`NextApiResponse`
+4. **No `use cache` directive** — `cacheComponents` is not enabled
+5. **No `getServerSideProps`/`getStaticProps`** — App Router only
 
 ---
 
 ## Critical Implementation Rules
 
-### Google Sheets client
-Never create a module-level singleton. Always instantiate inside the function:
-```ts
-function getSheetsClient() {
-  const auth = new google.auth.GoogleAuth({ ... });
-  return google.sheets({ version: 'v4', auth });
-}
-```
-
-### Private key transform
-The `.env.local` stores the PEM key with literal `\n`. Transform it exactly once, inside `getSheetsClient()`:
-```ts
-private_key: process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, '\n')
-```
-Never call `.replace` anywhere else.
-
-### Environment variables
-All server-only (no `NEXT_PUBLIC_` prefix):
-- `GOOGLE_SHEETS_SPREADSHEET_ID`
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-- `GOOGLE_PRIVATE_KEY`
-
-### Types
-All types must be imported from `@/types`. Never define them inline in route or component files.
-
-### Yahoo Finance (server only)
-Never call Yahoo Finance from a `'use client'` component. Always server-side only.
-
-### FX conversion
-Always call `toSGD(amount, currency, fxRates)` from `@/lib/fx`. Never access FX rates from a global.
-
-### SGD formatting
-Always use `formatSGD(value)` from `@/lib/fx`. Output format: `S$1,234.56`.
-
-### Imports
-Always use `@/` alias paths. Never use relative `../../` imports.
+- **No module-level Sheets singleton** — always instantiate inside `getSheetsClient()`
+- **Private key transform** — `GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')` only inside `getSheetsClient()`
+- **All types** imported from `@/types` — never defined inline
+- **Yahoo Finance** — server-side only, never in `'use client'` components
+- **FX conversion** — always `toSGD(amount, currency, fxRates)` from `@/lib/fx`
+- **SGD formatting** — `formatSGD(value)` for 2dp, or `Intl.NumberFormat` with `maximumFractionDigits: 0` for 0dp
+- **Imports** — always `@/` alias, never relative `../../`
 
 ---
 
-## Google Sheets Tab Structure
+## Design System
 
-Five tabs. Row 1 = header in every tab. Data starts at row 2.
+Color palette derived from the Wellspring logo gradient (indigo base → cyan mid → green leaf):
 
-| Tab | Columns |
-|---|---|
-| `Holdings` | A:ticker B:name C:shares D:avg_cost_local E:currency |
-| `Cash` | A:currency B:amount |
-| `Transactions` | A:id B:date C:ticker D:type E:shares F:price_local G:currency |
-| `MonthlyPlan` | A:ticker B:target_sgd |
-| `FxRates` | A:pair B:rate C:fetched_at |
-
----
-
-## Holdings in Scope
-
-| Ticker | Exchange | Currency |
+| Token | Value | Usage |
 |---|---|---|
-| BRK-B | NYSE | USD |
-| JK8.SI | SGX | SGD |
-| 2823.HK | HKEX | HKD |
-| 2838.HK | HKEX | HKD |
-| CASH | — | SGD |
+| `--color-primary` | `#0e7490` | Buttons, focus rings, active states |
+| `--color-primary-dark` | `#4338ca` | Total value text |
+| `--color-accent` | `#22c55e` | Accent / leaf green |
+| `--color-gain` | `#16a34a` | Positive P&L |
+| `--color-loss` | `#dc2626` | Negative P&L |
+| Nav background | `#0f172a` | slate-900 |
+| Page background | `#f0f9ff` | sky-50 |
 
-FX pairs: `USDSGD=X`, `HKDSGD=X`
-
----
-
-## API Error Shape
-
-All API routes return `{ error: string }` with an appropriate HTTP status on failure. Never return HTML error pages from route handlers.
+Donut chart equity colors: `#4338ca` → `#0e7490` → `#22c55e` → `#0891b2` → `#7c3aed` → `#0d9488`
+Cash always: `#94a3b8` (slate-400)
 
 ---
 
-## Allocation Donut Chart
+## What to Build Next (Post v0.1 Ideas)
 
-No chart library — hand-rolled SVG. Technique:
-- `viewBox="0 0 100 100"`, one `<circle>` per segment
-- `r = 15.9155` → circumference ≈ 100 for easy math
-- `stroke-dasharray = pct 100`
-- `stroke-dashoffset = -(cumulative pct of all prior segments)`
-
----
-
-## Graceful Fallback Behaviour
-
-| Failure | Expected behaviour |
-|---|---|
-| Yahoo Finance unreachable | Use cached FX from `FxRates` sheet; set `pricesStale: true`; show stale banner on dashboard |
-| Individual ticker price fails | `currentPriceLocal: null`; show `—` in UI; other holdings unaffected |
-| FX rates sheet empty (first run) | Hardcoded fallback: USDSGD=1.34, HKDSGD=0.17; set stale |
-| Google Sheets unreachable | 500 from API route; dashboard shows error boundary |
-
----
-
-## What to Build First
-
-Suggested order based on dependencies:
-
-1. **API routes** (Phase 1 gaps) — fast to write, each one is ~20 lines
-2. **Holdings pages** (Phase 3 gaps) — `holding-form.tsx` already exists, just need the page wrappers
-3. **Plan UI** (Phase 5) — `plan-form.tsx` + `plan/page.tsx`
-4. **Dashboard components + page** (Phase 6) — most complex, depends on everything
-5. **Fix error/loading boundary paths** (Phase 7 cleanup)
-
-See PLAN.md for detailed acceptance criteria per phase.
+- Unit tests for `src/lib/fx.ts` and `src/lib/portfolio.ts` (pure functions, easy to test)
+- Vercel deployment + environment variable configuration
+- Transaction history filterable by ticker
+- Cost basis in SGD shown on holdings page
+- Historical performance chart (requires storing snapshots)
+- Support for additional tickers beyond the current 4

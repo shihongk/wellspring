@@ -24,7 +24,7 @@ export default async function TransactionsPage() {
         </Card>
       ) : (
         <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[480px] text-left text-sm">
             <thead className="bg-gray-50 text-gray-700 border-b">
               <tr>
                 <th className="px-4 py-3 font-semibold">Date</th>

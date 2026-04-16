@@ -8,11 +8,11 @@ Personal SGD-denominated investment portfolio tracker. Backed by Google Sheets �
 
 ## Features
 
-- **Dashboard** — total portfolio value, per-holding P&L, allocation donut chart, ex-cash allocation toggle
-- **Holdings** — add, edit, delete positions; ticker dropdown auto-fills name and currency
+- **Dashboard** — total portfolio value, per-holding P&L, allocation donut chart, target % and gap columns, ex-cash allocation toggle
+- **Holdings** — add, edit, delete positions
 - **Transactions** — log BUY/SELL trades; automatically recalculates weighted average cost
-- **Cash** — track balances across multiple accounts/banks; dashboard shows total
-- **Monthly Plan** — set SGD targets per ticker; compare against current allocation
+- **Cash** — track balances across multiple accounts/banks
+- **Plan** — set target allocation % per equity; view current portfolio vs targets with cash-constrained buy recommendations; manage a forward-looking monthly investment schedule with bidirectional units ↔ SGD calculation
 - **Setup** — browser-based credential entry, connection test, automatic sheet provisioning and migration
 
 ---
@@ -80,17 +80,23 @@ Open [http://localhost:3000](http://localhost:3000) — redirects to the dashboa
 
 ## Google Sheets Structure
 
-Five tabs are required. The `/setup` page creates them automatically.
+Six tabs are required. The `/setup` page creates them automatically.
 
 | Tab | Columns |
 |---|---|
 | `Holdings` | ticker, name, shares, avg_cost_local, currency |
 | `Cash` | account, currency, amount |
 | `Transactions` | id, date, ticker, type, shares, price_local, currency |
-| `MonthlyPlan` | ticker, target_sgd |
+| `TargetAllocation` | ticker, target_pct |
+| `InvestmentSchedule` | month, ticker, name, planned_sgd |
 | `FxRates` | pair, rate, fetched_at |
 
-> If you set up the sheet before v0.1, the Cash tab used the old format (`currency, amount`). Run the **Migrate Cash tab** button on `/setup` to convert it.
+### Migrations from v0.1
+
+If you set up the sheet before v0.2, run the migration buttons on `/setup`:
+
+- **Migrate Cash tab** — converts old `(currency, amount)` format to `(account, currency, amount)`
+- **Add plan tabs** — creates the new `TargetAllocation` and `InvestmentSchedule` tabs (replaces `MonthlyPlan`)
 
 ---
 
@@ -102,6 +108,7 @@ Five tabs are required. The `/setup` page creates them automatically.
 | JK8.SI | SGX | SGD |
 | 2823.HK | HKEX | HKD |
 | 2838.HK | HKEX | HKD |
+| TSM | NYSE | USD |
 | CASH | — | SGD |
 
 FX pairs fetched: `USDSGD=X`, `HKDSGD=X`
@@ -115,7 +122,23 @@ Transactions are the source of truth for holdings. When you log a trade:
 - **BUY** — creates or updates the holding with a weighted average cost recalculation
 - **SELL** — reduces shares; deletes the holding row if shares reach zero
 
-For first-time setup with existing positions, log each lot as a BUY with an approximate date. The date doesn't affect any calculations.
+---
+
+## Plan Tab
+
+The Plan tab has three sections:
+
+1. **Current Portfolio** — reference table showing value, price, alloc %, target %, gap, and cash-constrained buy recommendations (how many units/SGD to buy to close the gap using available cash)
+2. **Target Allocation editor** — set target % per equity; running total shown
+3. **Investment Schedule** — editable monthly purchase plan; units and planned SGD are bidirectional (edit either, the other updates live)
+
+### Buy Recommendation Logic
+
+Uses iterative convergence to ensure total spend ≤ available cash:
+- `newTotal = equityValue + cashSGD`
+- For each underweight holding: `toBuy = targetPct% × newTotal − currentValue`
+- If total toBuy ≤ cash → use as-is (gaps fully closed)
+- If total toBuy > cash → scale proportionally to fit cash exactly
 
 ---
 
@@ -127,6 +150,7 @@ For first-time setup with existing positions, log each lot as a BUY with an appr
 | Individual price fails | Shows `—` for that holding; others unaffected |
 | FxRates sheet empty | Falls back to hardcoded rates (USDSGD 1.34, HKDSGD 0.17) |
 | Google Sheets unreachable | API returns 500; dashboard shows error boundary |
+| Plan data source fails | Each section (allocation editor / schedule) fails independently; the other still renders |
 
 ---
 
@@ -150,17 +174,22 @@ src/
 │   ├── holdings/         # Holdings CRUD
 │   ├── transactions/     # Transaction log
 │   ├── cash/             # Cash balances
-│   ├── plan/             # Monthly investment plan
-│   ├── setup/            # Credential setup + sheet provisioning
+│   ├── plan/             # Target allocation + investment schedule
+│   ├── setup/            # Credential setup + sheet provisioning + migrations
 │   ├── api/              # REST API routes (thin wrappers over lib/)
 │   └── lib/actions.ts    # Server Actions
 ├── components/
 │   ├── ui/               # Primitives: Button, Card, Input, Label, Select
-│   └── ...               # Feature components
+│   ├── allocation-editor.tsx   # Target % editor (client)
+│   ├── schedule-viewer.tsx     # Investment schedule editor (client)
+│   ├── plan-snapshot.tsx       # Current portfolio reference + buy recs (client)
+│   ├── holdings-table.tsx      # Holdings table with colour-coded column groups
+│   ├── dashboard-client.tsx    # Dashboard client wrapper (ex-cash toggle)
+│   └── ...
 ├── lib/
 │   ├── google-sheets.ts  # All Sheets CRUD
 │   ├── yahoo-finance.ts  # Price + FX fetch
-│   ├── portfolio.ts      # Pure computation
+│   ├── portfolio.ts      # Pure computation (snapshot, gap, units, groupByMonth)
 │   ├── fx.ts             # Currency conversion + formatting
 │   └── constants.ts      # Tickers, sheet names, fallback rates
 └── types/index.ts        # All shared TypeScript interfaces

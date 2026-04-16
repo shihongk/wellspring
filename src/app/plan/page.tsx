@@ -37,7 +37,7 @@ export default async function PlanPage() {
       )}
 
       {/* Target allocation editor + schedule side by side when wide enough */}
-      <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(280px,340px)_1fr] gap-6 items-start">
         <section>
           {allocations !== null && cash !== null ? (
             <AllocationEditor

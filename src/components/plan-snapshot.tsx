@@ -107,10 +107,30 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
   const isPartial = Object.values(buyRecs).some((r) => r.note === 'partial');
   const cashRemaining = cashSGD - totalToBuy;
 
+  // Pre-compute per-row derived values so we can sum them for the totals row
+  const rows = snapshot.holdings.map((h) => {
+    const targetPct = targetMap[h.ticker];
+    const hasTarget = targetPct != null && targetPct > 0;
+    const gap = hasTarget && h.allocationPct != null ? computeGap(targetPct, h.allocationPct) : null;
+    const rec = buyRecs[h.ticker];
+    const buySGD = rec?.buySGD ?? null;
+    const buyUnits = buySGD != null && h.currentPriceSGD != null && h.currentPriceSGD > 0
+      ? Math.floor(buySGD / h.currentPriceSGD)
+      : null;
+    return { h, targetPct, hasTarget, gap, rec, buySGD, buyUnits };
+  });
+
+  const sumValue    = rows.reduce((s, r) => s + (r.h.totalValueSGD ?? 0), 0);
+  const sumGain     = rows.every(r => r.h.unrealizedGainSGD != null)
+    ? rows.reduce((s, r) => s + (r.h.unrealizedGainSGD ?? 0), 0)
+    : null;
+  const sumBuySGD   = totalToBuy > 0 ? totalToBuy : null;
+  const sumBuyUnits = rows.reduce((s, r) => s + (r.buyUnits ?? 0), 0);
+
   return (
     <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+      <div className="flex flex-wrap items-center justify-between px-4 py-3 border-b bg-gray-50 gap-2">
         <span className="text-sm font-semibold text-gray-700">Current Portfolio</span>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-500">
@@ -127,7 +147,8 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
         </div>
       </div>
 
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[820px] text-sm">
         <thead className="text-xs uppercase tracking-wide text-gray-400 border-b">
           <tr>
             <th className="px-4 py-2 text-left font-semibold">Ticker</th>
@@ -143,20 +164,11 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
           </tr>
         </thead>
         <tbody className="divide-y">
-          {snapshot.holdings.map((h) => {
-            const targetPct = targetMap[h.ticker];
-            const hasTarget = targetPct != null && targetPct > 0;
-            const gap = hasTarget && h.allocationPct != null ? computeGap(targetPct, h.allocationPct) : null;
+          {rows.map(({ h, targetPct, hasTarget, gap, rec, buySGD, buyUnits }) => {
             const gapColor = gap == null ? '' : gap > 0 ? 'text-gain' : gap < 0 ? 'text-loss' : 'text-gray-500';
             const gainColor = h.unrealizedGainSGD != null
               ? h.unrealizedGainSGD >= 0 ? 'text-gain' : 'text-loss'
               : '';
-
-            const rec = buyRecs[h.ticker];
-            const buySGD = rec?.buySGD ?? null;
-            const buyUnits = buySGD != null && h.currentPriceSGD != null && h.currentPriceSGD > 0
-              ? Math.floor(buySGD / h.currentPriceSGD)
-              : null;
 
             return (
               <tr key={h.ticker} className="hover:bg-gray-50">
@@ -198,7 +210,29 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
             );
           })}
 
-          {/* Cash row — shows remaining cash after buys */}
+          {/* Equity totals row */}
+          <tr className="font-semibold border-t-2 bg-gray-50 text-gray-700">
+            <td className="px-4 py-2 text-xs uppercase tracking-wide text-gray-400">Equity total</td>
+            <td className="px-4 py-2 text-right">{fmtSGD(sumValue)}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gain">
+              {sumBuySGD != null ? (
+                <>{fmtSGD(sumBuySGD)}{isPartial && <span className="ml-1 text-xs text-amber-500">~</span>}</>
+              ) : nd}
+            </td>
+            <td className="px-4 py-2 text-right text-gain">
+              {sumBuyUnits > 0 ? sumBuyUnits.toLocaleString() : nd}
+            </td>
+            <td className={`px-4 py-2 text-right ${sumGain != null ? sumGain >= 0 ? 'text-gain' : 'text-loss' : ''}`}>
+              {fmtSGD(sumGain)}
+            </td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+          </tr>
+
+          {/* Cash row */}
           <tr className="bg-gray-50/50">
             <td className="px-4 py-2">
               <span className="font-semibold text-gray-500">CASH</span>
@@ -209,20 +243,41 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
             <td className="px-4 py-2 text-right">{fmtPct(snapshot.cash.allocationPct)}</td>
             <td className="px-4 py-2 text-right text-gray-400">{nd}</td>
             <td className="px-4 py-2 text-right text-gray-400">{nd}</td>
-            {/* Total to deploy + remaining */}
             <td className="px-4 py-2 text-right text-xs text-gray-500" colSpan={2}>
               {totalToBuy > 0 && (
                 <span>
                   Deploy {fmtSGD(totalToBuy)}
-                  {isPartial && <span className="ml-1 text-amber-500" title="Cash insufficient to fully close all gaps">~</span>}
-                  {cashRemaining > 0.5 && <span className="ml-2 text-gray-400">· {fmtSGD(cashRemaining)} left over</span>}
+                  {isPartial && <span className="ml-1 text-amber-500">~</span>}
+                  {cashRemaining > 0.5 && <span className="ml-2 text-gray-400">· {fmtSGD(cashRemaining)} left</span>}
                 </span>
               )}
             </td>
             <td colSpan={2} />
           </tr>
+
+          {/* Grand total row */}
+          <tr className="font-bold border-t-2 bg-gray-100 text-gray-800">
+            <td className="px-4 py-2 text-xs uppercase tracking-wide text-gray-400">Grand total</td>
+            <td className="px-4 py-2 text-right">{fmtSGD(sumValue + cashSGD)}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+            <td className="px-4 py-2 text-right text-gain">
+              {sumBuySGD != null ? fmtSGD(sumBuySGD) : nd}
+            </td>
+            <td className="px-4 py-2 text-right text-gain">
+              {sumBuyUnits > 0 ? sumBuyUnits.toLocaleString() : nd}
+            </td>
+            <td className={`px-4 py-2 text-right ${sumGain != null ? sumGain >= 0 ? 'text-gain' : 'text-loss' : ''}`}>
+              {fmtSGD(sumGain)}
+            </td>
+            <td className="px-4 py-2 text-right text-gray-300">{nd}</td>
+          </tr>
         </tbody>
       </table>
+
+      </div>
 
       {isPartial && (
         <div className="px-4 py-2 border-t bg-amber-50 text-xs text-amber-700">

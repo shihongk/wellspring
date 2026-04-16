@@ -40,7 +40,7 @@ const tdR = (t: string) => `${cellR} ${t}`;
 export function HoldingsTable({ holdings, cash, grandTotalSGD, targetAllocations }: Props) {
   return (
     <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-      <table className="w-full text-left text-sm">
+      <table className="w-full min-w-[900px] text-left text-sm">
         <thead className="text-gray-600 border-b text-xs uppercase tracking-wide">
           <tr>
             {/* Identity */}

@@ -19,8 +19,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={`${inter.className} min-h-screen text-gray-900`} style={{ backgroundColor: '#f0f9ff' }}>
         <Nav />
-        <main className="pl-48 min-h-screen">
-          <div className="px-8 py-6">
+        <main className="pl-48 min-h-screen min-w-0">
+          <div className="px-6 py-6">
             {children}
           </div>
         </main>

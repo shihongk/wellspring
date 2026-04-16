@@ -30,9 +30,22 @@ export interface CashPosition {
   SGD: number; // total
 }
 
-export interface MonthlyPlanRow {
+export interface TargetAllocationRow {
   ticker: string;
-  targetSGD: number;
+  targetPct: number; // 0–100
+}
+
+export interface InvestmentScheduleRow {
+  month: string;       // "Apr 2026" (MMM YYYY)
+  ticker: string;
+  name: string;
+  plannedSGD: number;
+}
+
+export interface PlanPageData {
+  targetAllocations: TargetAllocationRow[];
+  schedule: InvestmentScheduleRow[];
+  cashSGD: number;
 }
 
 export interface FxRates {
@@ -60,5 +73,4 @@ export interface PortfolioSnapshot {
     SGD: number;
     allocationPct: number | null;
   };
-  plan: MonthlyPlanRow[];
 }

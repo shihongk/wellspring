@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { Holding, Transaction, CashPosition, CashAccount, MonthlyPlanRow, FxRates } from '@/types';
+import { Holding, Transaction, CashPosition, CashAccount, TargetAllocationRow, InvestmentScheduleRow, FxRates } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
 
 function getSheetsClient() {
@@ -256,40 +256,78 @@ export async function appendTransaction(t: Omit<Transaction, 'id'>): Promise<str
   return id;
 }
 
-export async function getMonthlyPlan(): Promise<MonthlyPlanRow[]> {
+export async function getTargetAllocations(): Promise<TargetAllocationRow[]> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.MONTHLY_PLAN}!A:B`,
+    range: `${SHEET_NAMES.TARGET_ALLOCATION}!A:B`,
   });
-  
+
   const rows = res.data.values || [];
   if (rows.length <= 1) return [];
 
   return rows.slice(1).map((row) => ({
     ticker: row[0],
-    targetSGD: parseFloat(row[1] || '0'),
+    targetPct: parseFloat(row[1] || '0'),
   }));
 }
 
-export async function replaceMonthlyPlan(plan: MonthlyPlanRow[]): Promise<void> {
+export async function replaceTargetAllocations(rows: TargetAllocationRow[]): Promise<void> {
   const { sheets, spreadsheetId } = getSheetsClient();
-  
+
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: `${SHEET_NAMES.MONTHLY_PLAN}!A2:B`,
+    range: `${SHEET_NAMES.TARGET_ALLOCATION}!A2:B`,
   });
-  
-  if (plan.length === 0) return;
-  
-  const values = plan.map((p) => [p.ticker, p.targetSGD.toString()]);
-  
+
+  if (rows.length === 0) return;
+
+  const values = rows.map((r) => [r.ticker, r.targetPct.toString()]);
+
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${SHEET_NAMES.MONTHLY_PLAN}!A2:B${values.length + 1}`,
+    range: `${SHEET_NAMES.TARGET_ALLOCATION}!A2:B${values.length + 1}`,
     valueInputOption: 'RAW',
     requestBody: { values },
   });
+}
+
+export async function replaceInvestmentSchedule(rows: InvestmentScheduleRow[]): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: `${SHEET_NAMES.INVESTMENT_SCHEDULE}!A2:D`,
+  });
+
+  if (rows.length === 0) return;
+
+  const values = rows.map((r) => [r.month, r.ticker, r.name, r.plannedSGD.toString()]);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAMES.INVESTMENT_SCHEDULE}!A2:D${values.length + 1}`,
+    valueInputOption: 'RAW',
+    requestBody: { values },
+  });
+}
+
+export async function getInvestmentSchedule(): Promise<InvestmentScheduleRow[]> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.INVESTMENT_SCHEDULE}!A:D`,
+  });
+
+  const rows = res.data.values || [];
+  if (rows.length <= 1) return [];
+
+  return rows.slice(1).map((row) => ({
+    month: row[0],
+    ticker: row[1],
+    name: row[2],
+    plannedSGD: parseFloat(row[3] || '0'),
+  }));
 }
 
 export async function getFxRates(): Promise<FxRates | null> {

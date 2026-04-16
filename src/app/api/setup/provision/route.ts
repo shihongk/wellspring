@@ -6,7 +6,8 @@ const TABS = [
   { title: 'Holdings',     headers: ['ticker', 'name', 'shares', 'avg_cost_local', 'currency'] },
   { title: 'Cash',         headers: ['account', 'currency', 'amount'] },
   { title: 'Transactions', headers: ['id', 'date', 'ticker', 'type', 'shares', 'price_local', 'currency'] },
-  { title: 'MonthlyPlan',  headers: ['ticker', 'target_sgd'] },
+  { title: 'TargetAllocation',   headers: ['ticker', 'target_pct'] },
+  { title: 'InvestmentSchedule', headers: ['month', 'ticker', 'name', 'planned_sgd'] },
   { title: 'FxRates',      headers: ['pair', 'rate', 'fetched_at'] },
 ];
 

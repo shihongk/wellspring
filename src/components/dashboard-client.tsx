@@ -4,16 +4,15 @@ import { useState } from 'react';
 import { PortfolioSnapshot } from '@/types';
 import { HoldingsTable } from '@/components/holdings-table';
 import { AllocationChart } from '@/components/allocation-chart';
-import { PlanSummary } from '@/components/plan-summary';
 
 interface Props {
   snapshot: PortfolioSnapshot;
+  targetAllocations: Record<string, number>;
 }
 
-export function DashboardClient({ snapshot }: Props) {
+export function DashboardClient({ snapshot, targetAllocations }: Props) {
   const [excludeCash, setExcludeCash] = useState(false);
 
-  // Re-compute allocations excluding cash when toggled
   const equityTotal = snapshot.holdings.reduce(
     (sum, h) => sum + (h.totalValueSGD ?? 0), 0
   );
@@ -39,7 +38,6 @@ export function DashboardClient({ snapshot }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Toggle */}
       <div className="flex items-center justify-end">
         <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
           <span>Exclude cash from allocation</span>
@@ -65,17 +63,14 @@ export function DashboardClient({ snapshot }: Props) {
         cash={{ ...snapshot.cash, allocationPct: cashAlloc }}
         grandTotalSGD={snapshot.totalValueSGD}
         excludeCash={excludeCash}
+        targetAllocations={targetAllocations}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="rounded-xl border bg-white shadow-sm p-4">
-          <h2 className="text-lg font-semibold mb-3">
-            Allocation {excludeCash && <span className="text-xs font-normal text-gray-400">(ex-cash)</span>}
-          </h2>
-          <AllocationChart data={chartData} />
-        </div>
-
-        <PlanSummary plan={snapshot.plan} holdings={holdingsWithAdjustedAlloc} cash={{ ...snapshot.cash, allocationPct: cashAlloc }} />
+      <div className="rounded-xl border bg-white shadow-sm p-4">
+        <h2 className="text-lg font-semibold mb-3">
+          Allocation {excludeCash && <span className="text-xs font-normal text-gray-400">(ex-cash)</span>}
+        </h2>
+        <AllocationChart data={chartData} />
       </div>
     </div>
   );

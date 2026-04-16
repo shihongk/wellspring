@@ -9,10 +9,11 @@ import {
   updateCash,
   upsertCashAccount,
   deleteCashAccount,
-  replaceMonthlyPlan,
+  replaceTargetAllocations,
+  replaceInvestmentSchedule,
 } from '@/lib/google-sheets';
 import { computeNewAvgCost } from '@/lib/portfolio';
-import { Holding, Transaction, MonthlyPlanRow } from '@/types';
+import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow } from '@/types';
 
 export async function upsertHoldingAction(data: Holding): Promise<void> {
   await upsertHolding(data);
@@ -82,9 +83,14 @@ export async function deleteCashAccountAction(account: string): Promise<void> {
   revalidatePath('/cash');
 }
 
-export async function updatePlanAction(plan: MonthlyPlanRow[]): Promise<void> {
-  await replaceMonthlyPlan(plan);
+export async function saveTargetAllocationsAction(rows: TargetAllocationRow[]): Promise<void> {
+  await replaceTargetAllocations(rows);
   revalidatePath('/dashboard');
+  revalidatePath('/plan');
+}
+
+export async function saveScheduleAction(rows: InvestmentScheduleRow[]): Promise<void> {
+  await replaceInvestmentSchedule(rows);
   revalidatePath('/plan');
 }
 

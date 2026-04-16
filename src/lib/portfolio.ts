@@ -1,10 +1,10 @@
 import {
   Holding,
   CashPosition,
-  MonthlyPlanRow,
   FxRates,
   PortfolioSnapshot,
   PortfolioHolding,
+  InvestmentScheduleRow,
 } from '@/types';
 import { toSGD } from '@/lib/fx';
 
@@ -14,12 +14,39 @@ export function computeNewAvgCost(oldShares: number, oldAvg: number, newShares: 
   return ((oldShares * oldAvg) + (newShares * newPrice)) / totalShares;
 }
 
+export function computeGap(targetPct: number, currentPct: number): number {
+  return Math.round((targetPct - currentPct) * 10) / 10;
+}
+
+export function computeRecommendedUnits(plannedSGD: number, currentPriceSGD: number | null): number | null {
+  if (currentPriceSGD == null || currentPriceSGD <= 0) return null;
+  return Math.floor(plannedSGD / currentPriceSGD);
+}
+
+export function groupByMonth(rows: InvestmentScheduleRow[]): { month: string; rows: InvestmentScheduleRow[] }[] {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function parseMonth(m: string): number {
+    const [mon, yr] = m.split(' ');
+    return parseInt(yr) * 12 + MONTHS.indexOf(mon);
+  }
+
+  const map = new Map<string, InvestmentScheduleRow[]>();
+  for (const row of rows) {
+    if (!map.has(row.month)) map.set(row.month, []);
+    map.get(row.month)!.push(row);
+  }
+
+  return [...map.entries()]
+    .sort(([a], [b]) => parseMonth(a) - parseMonth(b))
+    .map(([month, rows]) => ({ month, rows }));
+}
+
 export function computePortfolioSnapshot(
   holdings: Holding[],
   prices: Record<string, { price: number | null; currency: string }>,
   fxRates: FxRates,
   cash: CashPosition,
-  plan: MonthlyPlanRow[],
   pricesStale: boolean,
   pricesFetchedAt: string | null
 ): PortfolioSnapshot {
@@ -59,6 +86,5 @@ export function computePortfolioSnapshot(
     totalValueSGD: pricesStale ? null : grandTotalSGD,
     holdings: portfolioHoldings,
     cash: { SGD: cash.SGD, allocationPct: cashAllocationPct },
-    plan,
   };
 }

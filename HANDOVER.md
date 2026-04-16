@@ -94,6 +94,7 @@ Five tabs. Row 1 = header. Data starts at row 2.
 | JK8.SI | UOBAM FTSE China A50 Index ETF | SGX | SGD |
 | 2823.HK | iShares FTSE A50 China Index ETF | HKEX | HKD |
 | 2838.HK | Hang Seng FTSE China 50 Index ETF | HKEX | HKD |
+| TSM | Taiwan Semiconductor Manufacturing | NYSE | USD |
 | CASH | Cash (SGD) | — | SGD |
 
 FX pairs: `USDSGD=X`, `HKDSGD=X`

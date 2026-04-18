@@ -8,7 +8,8 @@ const TABS = [
   { title: 'Transactions', headers: ['id', 'date', 'ticker', 'type', 'shares', 'price_local', 'currency'] },
   { title: 'TargetAllocation',   headers: ['ticker', 'target_pct'] },
   { title: 'InvestmentSchedule', headers: ['month', 'ticker', 'name', 'planned_sgd'] },
-  { title: 'FxRates',      headers: ['pair', 'rate', 'fetched_at'] },
+  { title: 'FxRates',            headers: ['pair', 'rate', 'fetched_at'] },
+  { title: 'PortfolioHistory',   headers: ['date', 'total_value_sgd', 'fx_usdsgd', 'fx_hkdsgd', 'recorded_at'] },
 ];
 
 export async function POST(request: Request) {

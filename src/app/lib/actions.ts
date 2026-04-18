@@ -6,13 +6,16 @@ import {
   deleteHolding,
   appendTransaction,
   getHoldings,
+  getCash,
   updateCash,
   upsertCashAccount,
   deleteCashAccount,
   replaceTargetAllocations,
   replaceInvestmentSchedule,
+  upsertHistoryEntry,
 } from '@/lib/google-sheets';
-import { computeNewAvgCost } from '@/lib/portfolio';
+import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
+import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow } from '@/types';
 
 export async function upsertHoldingAction(data: Holding): Promise<void> {
@@ -92,6 +95,33 @@ export async function saveTargetAllocationsAction(rows: TargetAllocationRow[]): 
 export async function saveScheduleAction(rows: InvestmentScheduleRow[]): Promise<void> {
   await replaceInvestmentSchedule(rows);
   revalidatePath('/plan');
+}
+
+export async function recordSnapshotAction(): Promise<{ recorded: boolean; reason?: string }> {
+  const { fxRates, prices, stale } = await fetchPricesAndFx();
+
+  if (stale) {
+    return { recorded: false, reason: 'prices-stale' };
+  }
+
+  const [holdings, cash] = await Promise.all([getHoldings(), getCash()]);
+  const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, false, new Date().toISOString());
+
+  if (snapshot.totalValueSGD === null) {
+    return { recorded: false, reason: 'prices-stale' };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  await upsertHistoryEntry({
+    date: today,
+    totalValueSGD: snapshot.totalValueSGD,
+    fxUSDSGD: fxRates.USDSGD,
+    fxHKDSGD: fxRates.HKDSGD,
+    recordedAt: new Date().toISOString(),
+  });
+
+  revalidatePath('/history');
+  return { recorded: true };
 }
 
 export async function renameCashAccountAction(oldName: string, newName: string, amount: number): Promise<void> {

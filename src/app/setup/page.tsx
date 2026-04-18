@@ -244,8 +244,6 @@ export default function SetupPage() {
         </div>
       </form>
 
-      <MigrateCashSection fields={fields} />
-      <MigratePlanSection fields={fields} />
     </div>
   );
 }
@@ -287,86 +285,3 @@ function RestartNote() {
   );
 }
 
-export function MigrateCashSection({ fields }: { fields: { spreadsheetId: string; serviceAccountEmail: string; privateKey: string } }) {
-  const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const [message, setMessage] = useState('');
-
-  async function handleMigrate() {
-    setStatus('running');
-    setMessage('');
-    const res = await fetch('/api/setup/migrate-cash', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fields),
-    });
-    const data = await res.json();
-    if (data.alreadyMigrated) {
-      setStatus('done');
-      setMessage('Cash tab is already in the new format — nothing to do.');
-    } else if (data.error) {
-      setStatus('error');
-      setMessage(data.error);
-    } else {
-      setStatus('done');
-      setMessage(`Migrated ${data.migratedRows} row(s). Your existing balance is now under the "Default" account.`);
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 space-y-3">
-      <div>
-        <p className="font-medium text-sm">Migrate existing Cash tab</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          If you set up your sheet before multi-account cash was added, click below to convert the old format (currency | amount) to the new format (account | currency | amount).
-        </p>
-      </div>
-      {status === 'done' && <p className="text-gain text-sm">✓ {message}</p>}
-      {status === 'error' && <p className="text-loss text-sm">{message}</p>}
-      <Button variant="secondary" onClick={handleMigrate} disabled={status === 'running'}>
-        {status === 'running' ? 'Migrating…' : 'Migrate Cash tab'}
-      </Button>
-    </div>
-  );
-}
-
-export function MigratePlanSection({ fields }: { fields: { spreadsheetId: string; serviceAccountEmail: string; privateKey: string } }) {
-  const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const [message, setMessage] = useState('');
-
-  async function handleMigrate() {
-    setStatus('running');
-    setMessage('');
-    const res = await fetch('/api/setup/migrate-plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fields),
-    });
-    const data = await res.json();
-    if (data.error) {
-      setStatus('error');
-      setMessage(data.error);
-    } else {
-      setStatus('done');
-      const parts = [];
-      if (data.created?.length) parts.push(`Created: ${data.created.join(', ')}`);
-      if (data.skipped?.length) parts.push(`Already existed: ${data.skipped.join(', ')}`);
-      setMessage(parts.join(' · ') || 'Done.');
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 space-y-3">
-      <div>
-        <p className="font-medium text-sm">Add TargetAllocation &amp; InvestmentSchedule tabs</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          If your sheet was set up before the Plan redesign, click below to add the two new tabs (<strong>TargetAllocation</strong> and <strong>InvestmentSchedule</strong>). Existing tabs are left untouched.
-        </p>
-      </div>
-      {status === 'done' && <p className="text-gain text-sm">✓ {message}</p>}
-      {status === 'error' && <p className="text-loss text-sm">{message}</p>}
-      <Button variant="secondary" onClick={handleMigrate} disabled={status === 'running'}>
-        {status === 'running' ? 'Adding tabs…' : 'Add plan tabs'}
-      </Button>
-    </div>
-  );
-}

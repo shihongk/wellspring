@@ -29,6 +29,7 @@ export const SHEET_NAMES = {
   TARGET_ALLOCATION: 'TargetAllocation',
   INVESTMENT_SCHEDULE: 'InvestmentSchedule',
   FX_RATES: 'FxRates',
+  PORTFOLIO_HISTORY: 'PortfolioHistory',
 } as const;
 
 export const FALLBACK_FX_RATES = {

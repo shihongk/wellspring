@@ -106,6 +106,17 @@ One spreadsheet, five tabs. Row 1 in every tab is the header row. Data starts at
 - Written after every successful Yahoo Finance fetch.
 - Read as fallback when Yahoo Finance is unreachable.
 
+### Tab: `PortfolioHistory`
+
+| A: date | B: total_value_sgd | C: fx_usdsgd | D: fx_hkdsgd | E: recorded_at |
+|---|---|---|---|---|
+| 2024-04-13 | 142350.00 | 1.34 | 0.172 | 2024-04-13T10:15:00Z |
+
+- One row per calendar date. **Upsert by date**: find existing row for the date and overwrite, or append if not found.
+- `recorded_at` is ISO 8601 UTC.
+- FX rates stored alongside value so historical calculations can be reproduced.
+- Never delete rows.
+
 ---
 
 ## 5. File & Folder Structure
@@ -119,6 +130,9 @@ src/
 │   │
 │   ├── dashboard/
 │   │   └── page.tsx                  # Server Component — main portfolio view
+│   │
+│   ├── history/
+│   │   └── page.tsx                  # Server Component — portfolio value over time
 │   │
 │   ├── holdings/
 │   │   ├── page.tsx                  # List all holdings (Server Component)
@@ -165,6 +179,8 @@ src/
     ├── portfolio-summary.tsx         # Total value card + FX rate badges
     ├── holdings-table.tsx            # Per-holding value table
     ├── allocation-chart.tsx          # Donut chart ('use client')
+    ├── value-history-chart.tsx       # Line chart for portfolio value over time ('use client')
+    ├── snapshot-button.tsx           # Manual "Record Snapshot" button ('use client')
     ├── holding-form.tsx              # Add/edit holding ('use client')
     ├── transaction-form.tsx          # Log transaction ('use client')
     ├── cash-form.tsx                 # Update cash ('use client')
@@ -176,6 +192,10 @@ src/
         ├── label.tsx
         ├── select.tsx
         └── stat.tsx                  # Key/value stat display block
+
+scripts/
+└── snapshot.ts                       # Standalone Node.js script — records daily snapshot
+                                      # Called directly by macOS launchd, no HTTP server needed
 ```
 
 ---
@@ -240,6 +260,14 @@ export interface PortfolioSnapshot {
   };
   plan: MonthlyPlanRow[];
 }
+
+export interface PortfolioHistoryEntry {
+  date: string;         // YYYY-MM-DD
+  totalValueSGD: number;
+  fxUSDSGD: number;
+  fxHKDSGD: number;
+  recordedAt: string;   // ISO 8601 UTC
+}
 ```
 
 ---
@@ -286,6 +314,18 @@ Returns `MonthlyPlanRow[]`.
 
 ### `PUT /api/plan`
 Body: `{ plan: MonthlyPlanRow[] }`. Full replace: clear data rows then write all. Returns `{ success: true }`.
+
+### `POST /api/setup/migrate-history`
+
+Creates the `PortfolioHistory` tab in the existing spreadsheet, exactly matching the pattern of `migrate-plan`. Accepts the same body as all other setup routes: `{ spreadsheetId, serviceAccountEmail, privateKey }`.
+
+- If the tab already exists → return `{ alreadyExists: true }`
+- Otherwise → create the tab, write the header row, return `{ success: true, created: ['PortfolioHistory'] }`
+- Error shape: `{ error: string }` with status 400
+
+Also: add `PortfolioHistory` to the `TABS` array in `/api/setup/provision/route.ts` so new full-setup runs include it automatically.
+
+---
 
 ### `GET /api/prices`
 Returns:
@@ -471,7 +511,7 @@ Server Component wrapping `<PlanForm>` Client Component. Table: one row per tick
 
 ## 15. Navigation
 
-Root `layout.tsx` renders `<Nav>` Client Component (needs `usePathname()` for active link highlighting). Nav links: **Dashboard**, **Holdings**, **Transactions**, **Cash**, **Plan**.
+Root `layout.tsx` renders `<Nav>` Client Component (needs `usePathname()` for active link highlighting). Nav links: **Dashboard**, **History**, **Holdings**, **Transactions**, **Cash**, **Plan**.
 
 ---
 
@@ -501,7 +541,7 @@ Display format for SGD values: `S$1,234.56` (always 2 decimal places, thousands 
 5. Copy `private_key` → `GOOGLE_PRIVATE_KEY` in `.env.local` (keep the `\n` sequences).
 6. Copy the spreadsheet ID from the URL → `GOOGLE_SHEETS_SPREADSHEET_ID` in `.env.local`.
 7. Share the spreadsheet with the service account email as **Editor**.
-8. Create the five tabs with the exact names and headers from Section 4.
+8. Create the six tabs with the exact names and headers from Section 4 (including `PortfolioHistory`).
 
 ---
 
@@ -513,3 +553,231 @@ Display format for SGD values: `S$1,234.56` (always 2 decimal places, thousands 
 | Individual ticker price fails | Show `—` for that holding's price/value/gain; other holdings unaffected |
 | Google Sheets unreachable | Return 500 from API route; page shows an error state |
 | FX rates sheet empty (first run) | Default to hardcoded fallback rates (e.g. USDSGD=1.34, HKDSGD=0.17) with stale flag |
+| `PortfolioHistory` sheet empty | `/history` shows empty-state message: "No snapshots yet — run the snapshot script or visit your dashboard" |
+| Snapshot script: Yahoo Finance unreachable | Script exits with non-zero code and logs error; no row written; launchd logs the failure |
+| Snapshot script: Sheets write fails | Script exits with non-zero code and logs error; retry will occur on next scheduled run |
+| Dashboard auto-snapshot: prices stale | Skip writing snapshot; do not record stale values |
+
+---
+
+## 19. Portfolio History Feature
+
+### Overview
+
+Records total portfolio value (SGD) once per trading day. Two triggers:
+1. **Automated** — `scripts/snapshot.ts` run by macOS launchd on a schedule (primary)
+2. **Manual fallback** — "Record Snapshot" button on `/history` page, and auto-record on dashboard load when prices are fresh
+
+### Google Sheets helpers (additions to `src/lib/google-sheets.ts`)
+
+```ts
+// Check if a snapshot for a given date already exists. Returns row index (1-based) or null.
+async function findHistoryRowByDate(sheets, date: string): Promise<number | null>
+
+// Upsert: overwrite row if date exists, append otherwise.
+async function upsertHistoryEntry(entry: PortfolioHistoryEntry): Promise<void>
+
+// Read all history, sorted ascending by date.
+async function getPortfolioHistory(): Promise<PortfolioHistoryEntry[]>
+```
+
+### Server Action (addition to `src/app/lib/actions.ts`)
+
+```ts
+// Records a snapshot for today. Called from dashboard auto-record and manual button.
+// No-ops if prices are stale. Upserts (overwrites today's row if it already exists).
+export async function recordSnapshotAction(): Promise<{ recorded: boolean; reason?: string }>
+```
+
+After a successful write, revalidates `/history`.
+
+### Dashboard auto-record (`src/app/dashboard/page.tsx`)
+
+After computing the portfolio snapshot:
+- If `pricesStale === false` — call `recordSnapshotAction()` as a fire-and-forget (do not `await`; do not block render).
+- The dashboard renders identically regardless of whether the write succeeds.
+
+### `scripts/snapshot.ts` — standalone script
+
+Runs independently of the Next.js server. Loads `.env.local` via `dotenv`. Imports directly from `src/lib/`.
+
+```
+Flow:
+1. Load env vars from .env.local (dotenv)
+2. Fetch holdings from Google Sheets
+3. Fetch live prices + FX from Yahoo Finance
+4. If Yahoo Finance fails entirely → exit with error (do not record stale data)
+5. Compute totalValueSGD using portfolio.ts logic
+6. Upsert row into PortfolioHistory sheet
+7. Log success: "Snapshot recorded: YYYY-MM-DD S$142,350.00"
+```
+
+Run manually: `npx tsx scripts/snapshot.ts`
+
+Requires `tsx` and `dotenv` as dev dependencies.
+
+### `/history` page (`src/app/history/page.tsx`)
+
+Server Component. Reads all rows from `PortfolioHistory` sheet and renders:
+
+1. **Page header**: "Portfolio History"
+2. **Key stats row** (Server Component, 3 stat cards using `<Stat>`):
+   - Latest value: `totalValueSGD` from most recent entry
+   - Change this month: difference from first entry in current month to latest, formatted as `S$X,XXX (+X.X%)`
+   - All-time change: difference from very first entry to latest
+3. **`<ValueHistoryChart>`** Client Component — receives full dataset as props
+4. **`<SnapshotButton>`** Client Component — manual record trigger
+
+**Empty state**: if no history rows, show a message with instructions to run the script or visit the dashboard.
+
+### `src/components/value-history-chart.tsx` — pure SVG line chart
+
+`'use client'`. No third-party charting library. Consistent with existing `<AllocationChart>`.
+
+**Props:**
+```ts
+interface Props {
+  data: { date: string; totalValueSGD: number }[];
+}
+```
+
+**Internal state:**
+```ts
+const [range, setRange] = useState<'1M' | '3M' | '6M' | '1Y' | 'ALL'>('3M');
+const [tooltip, setTooltip] = useState<{ x: number; y: number; date: string; value: number } | null>(null);
+```
+
+**Rendering:**
+- Range selector buttons (`1M | 3M | 6M | 1Y | All`) filter `data` before rendering
+- SVG viewBox: `0 0 600 280`. Padding: top 20, right 20, bottom 40, left 70.
+- Plot area: 510 × 220px
+- Y-axis: 5 evenly spaced grid lines + labels (`S$XXX,XXX`)
+- X-axis: up to 6 evenly spaced date labels (`MMM 'YY`)
+- Area fill: semi-transparent teal (`--color-primary` at 10% opacity) under the line
+- Polyline: 2px stroke, `--color-primary` colour
+- Data point circles: 4px radius, visible on hover only (controlled by `tooltip` state)
+- Hover target: transparent `<rect>` covering full plot area, `onMouseMove` computes nearest data point by x-position and sets `tooltip` state; `onMouseLeave` clears it
+- Tooltip: absolutely positioned `<div>` (outside SVG, using `foreignObject` or a sibling div positioned via pixel offset) showing date (`DD MMM YYYY`) and value (`S$XXX,XXX.XX`)
+- If fewer than 2 data points: render empty state text inside the SVG
+
+**Responsive**: wrap SVG in a `<div className="w-full overflow-x-auto">`. SVG has fixed viewBox but `width="100%"`.
+
+### `src/components/snapshot-button.tsx`
+
+`'use client'`. Calls `recordSnapshotAction()` on click.
+
+```ts
+interface Props {}  // no props needed
+```
+
+States:
+- **Idle**: button labelled "Record Snapshot" with a camera/save icon
+- **Loading**: button disabled, spinner icon, "Recording…"
+- **Success**: green checkmark, "Recorded" — resets to idle after 3 seconds
+- **Skipped**: grey, "Already recorded today" — resets after 3 seconds
+- **Error**: red, "Failed — try again" — resets after 5 seconds
+
+### Sheet migration for existing users (`src/app/setup/page.tsx`)
+
+A `MigrateHistorySection` component is added at the bottom of the setup page, following the identical pattern as `MigrateCashSection` and `MigratePlanSection`:
+
+- Description: "If your sheet was set up before portfolio history was added, click below to create the PortfolioHistory tab."
+- Button: "Add PortfolioHistory tab"
+- Calls `POST /api/setup/migrate-history` with the stored credentials fields
+- States: idle / running ("Adding tab…") / done ("✓ PortfolioHistory tab created") / already-exists ("✓ PortfolioHistory tab already exists — nothing to do") / error
+
+Also update `TABS` in `/api/setup/provision/route.ts` to include:
+```ts
+{ title: 'PortfolioHistory', headers: ['date', 'total_value_sgd', 'fx_usdsgd', 'fx_hkdsgd', 'recorded_at'] }
+```
+so fresh full-setup runs create the tab automatically.
+
+---
+
+## 20. macOS launchd Setup (one-time, for local deployment)
+
+Install `tsx` and `dotenv`:
+```bash
+npm install --save-dev tsx dotenv
+```
+
+Create the plist at `~/Library/LaunchAgents/com.wellspring.snapshot.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.wellspring.snapshot</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/usr/local/bin/npx</string>
+    <string>tsx</string>
+    <string>/Users/YOUR_USERNAME/Documents/Kiro/wellspring/scripts/snapshot.ts</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <!-- Weekdays at 18:00 local time (after SGX + NYSE pre-market open) -->
+    <dict>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>0</integer>
+      <key>Weekday</key><integer>1</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>0</integer>
+      <key>Weekday</key><integer>2</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>0</integer>
+      <key>Weekday</key><integer>3</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>0</integer>
+      <key>Weekday</key><integer>4</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>0</integer>
+      <key>Weekday</key><integer>5</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/wellspring-snapshot.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/wellspring-snapshot.error.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
+```
+
+**Key behaviour**: if the Mac is asleep at 18:00, launchd runs the job the next time the Mac wakes. At most one missed run is retried per interval.
+
+Load the agent:
+```bash
+launchctl load ~/Library/LaunchAgents/com.wellspring.snapshot.plist
+```
+
+Unload (to edit or disable):
+```bash
+launchctl unload ~/Library/LaunchAgents/com.wellspring.snapshot.plist
+```
+
+Check logs:
+```bash
+tail -f /tmp/wellspring-snapshot.log
+tail -f /tmp/wellspring-snapshot.error.log
+```
+
+**Why 18:00 local (SGT)?**: SGX closes at 17:00 SGT. NYSE opens at 21:30 SGT. 18:00 captures end-of-SGX prices before US markets open — a clean daily snapshot of what your SGX and HKD positions closed at.

@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { Holding, Transaction, CashPosition, CashAccount, TargetAllocationRow, InvestmentScheduleRow, FxRates } from '@/types';
+import { Holding, Transaction, CashPosition, CashAccount, TargetAllocationRow, InvestmentScheduleRow, FxRates, PortfolioHistoryEntry } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
 
 function getSheetsClient() {
@@ -348,6 +348,69 @@ export async function getFxRates(): Promise<FxRates | null> {
 
   if (rates.USDSGD == null || rates.HKDSGD == null) return null;
   return rates as FxRates;
+}
+
+export async function getPortfolioHistory(): Promise<PortfolioHistoryEntry[]> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:E`,
+  });
+
+  const rows = res.data.values || [];
+  if (rows.length <= 1) return [];
+
+  return rows
+    .slice(1)
+    .map((row) => ({
+      date: row[0],
+      totalValueSGD: parseFloat(row[1]),
+      fxUSDSGD: parseFloat(row[2]),
+      fxHKDSGD: parseFloat(row[3]),
+      recordedAt: row[4],
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function findHistoryRowByDate(date: string): Promise<number | null> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:A`,
+  });
+
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex((row, i) => i > 0 && row[0] === date);
+  return rowIndex === -1 ? null : rowIndex + 1; // 1-based sheet row number
+}
+
+export async function upsertHistoryEntry(entry: PortfolioHistoryEntry): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const rowData = [
+    entry.date,
+    entry.totalValueSGD.toString(),
+    entry.fxUSDSGD.toString(),
+    entry.fxHKDSGD.toString(),
+    entry.recordedAt,
+  ];
+
+  const existingRow = await findHistoryRowByDate(entry.date);
+
+  if (existingRow !== null) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEET_NAMES.PORTFOLIO_HISTORY}!A${existingRow}:E${existingRow}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [rowData] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:E`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [rowData] },
+    });
+  }
 }
 
 export async function writeFxRates(rates: FxRates): Promise<void> {

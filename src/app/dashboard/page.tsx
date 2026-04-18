@@ -1,36 +1,80 @@
 export const dynamic = 'force-dynamic';
 
-import { getHoldings, getCash, getTargetAllocations } from '@/lib/google-sheets';
+import { getHoldings, getCash, getTargetAllocations, getPortfolioHistory } from '@/lib/google-sheets';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { computePortfolioSnapshot } from '@/lib/portfolio';
-import { PortfolioSummary } from '@/components/portfolio-summary';
+import { recordSnapshotAction } from '@/app/lib/actions';
+import { formatDateTime } from '@/lib/fx';
 import { DashboardClient } from '@/components/dashboard-client';
-import { RefreshButton } from '@/components/refresh-button';
+import { type BreakdownItem } from '@/components/history-client';
+
+const TICKER_COLORS: Record<string, string> = {
+  'BRK-B':   '#0f766e',
+  'JK8.SI':  '#0369a1',
+  '2823.HK': '#7c3aed',
+  '2838.HK': '#b45309',
+  'CASH':    '#64748b',
+};
 
 export default async function DashboardPage() {
-  const [holdings, cash, targetAllocations, { fxRates, prices, stale, fetchedAt }] = await Promise.all([
-    getHoldings(),
-    getCash(),
-    getTargetAllocations().catch(() => []),
-    fetchPricesAndFx(),
-  ]);
+  const [holdings, cash, targetAllocations, { fxRates, prices, stale, fetchedAt }, history] =
+    await Promise.all([
+      getHoldings(),
+      getCash(),
+      getTargetAllocations().catch(() => []),
+      fetchPricesAndFx(),
+      getPortfolioHistory().catch(() => []),
+    ]);
 
   const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, stale, fetchedAt);
 
-  const targetAllocMap: Record<string, number> = Object.fromEntries(
+  // Auto-record snapshot fire-and-forget
+  if (!stale) recordSnapshotAction().catch(() => {});
+
+  const targetAllocMap = Object.fromEntries(
     targetAllocations.map((r) => [r.ticker, r.targetPct])
   );
 
+  const chartData = history.map((e) => ({ date: e.date, totalValueSGD: e.totalValueSGD }));
+
+  const total = snapshot.totalValueSGD ?? 0;
+  const breakdown: BreakdownItem[] = [
+    ...snapshot.holdings
+      .filter((h) => h.totalValueSGD != null)
+      .map((h) => ({
+        ticker: h.ticker,
+        name: h.name,
+        valueSGD: h.totalValueSGD!,
+        allocationPct: h.allocationPct ?? (h.totalValueSGD! / total) * 100,
+        color: TICKER_COLORS[h.ticker] ?? '#94a3b8',
+        costBasisSGD: h.costBasisSGD,
+        unrealizedGainSGD: h.unrealizedGainSGD,
+      }))
+      .sort((a, b) => b.valueSGD - a.valueSGD),
+    {
+      ticker: 'CASH',
+      name: 'Cash',
+      valueSGD: snapshot.cash.SGD,
+      allocationPct: snapshot.cash.allocationPct ?? (snapshot.cash.SGD / total) * 100,
+      color: TICKER_COLORS['CASH'],
+      costBasisSGD: snapshot.cash.SGD,
+      unrealizedGainSGD: 0,
+    },
+  ];
+
+  const fetchedAtLabel = stale
+    ? 'Prices unavailable'
+    : fetchedAt ? `Fetched ${formatDateTime(fetchedAt)}` : '';
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <RefreshButton />
-      </div>
-
-      <PortfolioSummary snapshot={snapshot} />
-
-      <DashboardClient snapshot={snapshot} targetAllocations={targetAllocMap} />
-    </div>
+    <DashboardClient
+      snapshot={snapshot}
+      targetAllocations={targetAllocMap}
+      chartData={chartData}
+      breakdown={breakdown}
+      fxRates={fxRates}
+      stale={stale}
+      fetchedAtLabel={fetchedAtLabel}
+    />
   );
 }

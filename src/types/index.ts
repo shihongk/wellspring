@@ -74,3 +74,11 @@ export interface PortfolioSnapshot {
     allocationPct: number | null;
   };
 }
+
+export interface PortfolioHistoryEntry {
+  date: string;         // YYYY-MM-DD
+  totalValueSGD: number;
+  fxUSDSGD: number;
+  fxHKDSGD: number;
+  recordedAt: string;   // ISO 8601 UTC
+}

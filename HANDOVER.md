@@ -6,9 +6,9 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
-## Current State — v0.2 (2026-04-16) — COMPLETE
+## Current State — v0.4 (2026-04-18) — COMPLETE
 
-All v0.1 and v0.2 features are fully implemented and committed to `main`.
+All v0.1 through v0.4 features are fully implemented and committed to `main`.
 
 ---
 
@@ -18,10 +18,10 @@ All v0.1 and v0.2 features are fully implemented and committed to `main`.
 
 | File | Purpose |
 |---|---|
-| `src/types/index.ts` | All shared interfaces: `TargetAllocationRow`, `InvestmentScheduleRow`, `PlanPageData`, `PortfolioSnapshot` (no `plan` field), etc. |
-| `src/lib/constants.ts` | Tickers, FX pairs, sheet names (`TARGET_ALLOCATION`, `INVESTMENT_SCHEDULE`), fallback rates, `TICKER_NAME` map |
+| `src/types/index.ts` | All shared interfaces including `PortfolioHistoryEntry` |
+| `src/lib/constants.ts` | Tickers, FX pairs, sheet names (`PORTFOLIO_HISTORY` added), fallback rates |
 | `src/lib/fx.ts` | `toSGD()`, `formatSGD()`, `formatShares()`, `formatDate()`, `formatDateTime()` |
-| `src/lib/google-sheets.ts` | Full Sheets CRUD: holdings, cash (multi-account), transactions, `getTargetAllocations`, `replaceTargetAllocations`, `getInvestmentSchedule`, `replaceInvestmentSchedule`, FX rates |
+| `src/lib/google-sheets.ts` | Full Sheets CRUD including `getPortfolioHistory`, `findHistoryRowByDate`, `upsertHistoryEntry` |
 | `src/lib/yahoo-finance.ts` | Price + FX fetch with 3-tier fallback (live → cached sheet → hardcoded) |
 | `src/lib/portfolio.ts` | `computePortfolioSnapshot`, `computeNewAvgCost`, `computeGap`, `computeRecommendedUnits`, `groupByMonth` |
 
@@ -32,6 +32,7 @@ All v0.1 and v0.2 features are fully implemented and committed to `main`.
 - `updateCashAction`, `upsertCashAccountAction`, `deleteCashAccountAction`, `renameCashAccountAction`
 - `saveTargetAllocationsAction` — writes to `TargetAllocation` sheet, revalidates `/dashboard` and `/plan`
 - `saveScheduleAction` — writes to `InvestmentSchedule` sheet, revalidates `/plan`
+- `recordSnapshotAction` — fetches live prices, guards against stale data, upserts `PortfolioHistory` row, revalidates `/history`
 
 ### API Routes
 
@@ -44,41 +45,49 @@ All v0.1 and v0.2 features are fully implemented and committed to `main`.
 - `GET /api/prices`
 - `GET /api/portfolio`
 - `POST /api/setup/test`
-- `POST /api/setup/provision` — creates `TargetAllocation` + `InvestmentSchedule` tabs (not `MonthlyPlan`)
+- `POST /api/setup/provision` — creates all 7 tabs including `PortfolioHistory`
 - `POST /api/setup/save`
-- `POST /api/setup/migrate-cash`
-- `POST /api/setup/migrate-plan` — creates `TargetAllocation` + `InvestmentSchedule` tabs for existing sheets
 
 ### Pages
 
 - `/` → redirects to `/dashboard`
-- `/dashboard` — portfolio view with colour-coded holdings table (position/market/performance/allocation column groups), target % and gap columns, ex-cash toggle, allocation chart
+- `/dashboard` — full portfolio view: KPI cards (Total Value, All-time Return, MTD), holdings table, allocation donut, history chart + attribution breakdown. Auto-records a snapshot fire-and-forget on every load (skips if prices stale)
 - `/holdings` — list with edit/delete; `/holdings/new`; `/holdings/[ticker]`
 - `/transactions` — list with BUY/SELL badges; `/transactions/new`
 - `/cash` — multi-account cash management
 - `/plan` — three sections: current portfolio reference + buy recommendations, target allocation editor, investment schedule editor
-- `/setup` — credential entry, connection test, sheet provisioning, cash migration, plan tab migration
+- `/setup` — credential entry, connection test, sheet provisioning (migration sections removed — sheets already up to date)
 
 ### Components
 
 | Component | Type | Purpose |
 |---|---|---|
-| `Nav` | client | Fixed left sidebar, always visible |
-| `PortfolioSummary` | server | Total value, stale banner, FX rate pills |
-| `HoldingsTable` | server | Holdings table with 4 colour-coded column groups (position/market/perf/alloc), target % and gap |
-| `DashboardClient` | client | Ex-cash toggle, passes `targetAllocations` to `HoldingsTable` |
-| `AllocationChart` | client | SVG donut chart |
+| `Nav` | client | Fixed left sidebar — Dashboard, Holdings, Transactions, Cash, Plan, Setup |
+| `DashboardClient` | client | Full dashboard page — owns `excludeCash` state; renders header (with toggle), KPI cards, holdings table, allocation panel, history & attribution |
+| `HoldingsTable` | client | Holdings table with 4 colour-coded column groups (position/market/perf/alloc), total gain/loss row |
+| `AllocationPanel` | client | Controlled donut chart — accepts `excludeCash` from parent, no internal state |
+| `AllocationChart` | client | SVG donut chart (120×120 viewBox, w-24 rendered) |
+| `HistoryClient` | client | Shared range selector → `ValueHistoryChart` (left) + contribution breakdown (right); ALL range uses cost-basis P&L |
+| `ValueHistoryChart` | client | Pure SVG line chart — uncontrolled (own range selector) or controlled via `range` prop; 160px height |
+| `SnapshotButton` | client | Manual record trigger with 5 states (idle/loading/success/skipped/error) |
 | `AllocationEditor` | client | Target % inputs per equity, running total, cash display |
 | `ScheduleViewer` | client | Editable investment schedule; bidirectional units ↔ SGD; totals row |
 | `PlanSnapshot` | client | Current portfolio reference table with cash-constrained buy recommendations (iterative convergence) |
 | `RefreshButton` | client | `router.refresh()` to re-fetch live prices |
 | `HoldingForm`, `TransactionForm`, `CashForm` | client | CRUD forms |
 
+### Scripts
+
+| Script | Purpose |
+|---|---|
+| `scripts/snapshot.ts` | Standalone daily snapshot — loads `.env.local` via dotenv, no HTTP server needed. Run: `npx tsx scripts/snapshot.ts` |
+| `scripts/backfill.ts` | One-off historical backfill — fetches actual closing prices per day from Yahoo Finance, uses today's holdings. Run: `npx tsx scripts/backfill.ts` |
+
 ---
 
 ## Google Sheets Tab Structure
 
-Six tabs. Row 1 = header. Data starts at row 2.
+Seven tabs. Row 1 = header. Data starts at row 2.
 
 | Tab | Columns |
 |---|---|
@@ -88,11 +97,29 @@ Six tabs. Row 1 = header. Data starts at row 2.
 | `TargetAllocation` | A:ticker B:target_pct |
 | `InvestmentSchedule` | A:month B:ticker C:name D:planned_sgd |
 | `FxRates` | A:pair B:rate C:fetched_at |
+| `PortfolioHistory` | A:date B:total_value_sgd C:fx_usdsgd D:fx_hkdsgd E:recorded_at |
 
 ### Migration notes
 
-- **Cash tab** changed from `(currency, amount)` to `(account, currency, amount)` in v0.1. `getCash()` auto-detects both formats. Run `/api/setup/migrate-cash` to convert.
-- **MonthlyPlan tab** replaced by `TargetAllocation` + `InvestmentSchedule` in v0.2. Run `/api/setup/migrate-plan` to add the new tabs to existing sheets.
+All migrations have been applied. The sheets are fully up to date with all 7 tabs. Migration UI was removed from `/setup` in v0.4.
+
+---
+
+## Automated Snapshot — macOS launchd
+
+The launchd job `com.wellspring.snapshot` is installed and loaded on this machine. It runs `scripts/snapshot.ts` Mon–Fri at 18:00 local time (after SGX closes).
+
+- Plist: `~/Library/LaunchAgents/com.wellspring.snapshot.plist`
+- Logs: `/tmp/wellspring-snapshot.log` and `/tmp/wellspring-snapshot.error.log`
+- npx path used: `/opt/homebrew/bin/npx` (Homebrew install)
+- If Mac is asleep at 18:00, launchd runs on next wake
+
+Manage:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.wellspring.snapshot.plist  # disable
+launchctl load   ~/Library/LaunchAgents/com.wellspring.snapshot.plist  # re-enable
+launchctl list | grep wellspring                                        # check status
+```
 
 ---
 
@@ -158,6 +185,7 @@ loop (up to 20 iterations):
 - **Yahoo Finance** — server-side only, never in `'use client'` components
 - **FX conversion** — always `toSGD(amount, currency, fxRates)` from `@/lib/fx`
 - **Imports** — always `@/` alias, never relative `../../`
+- **Scripts** — load `.env.local` via `config({ path: resolve(__dirname, '../.env.local') })` from `dotenv`; use UTC-safe date parsing (parse date parts manually, never `new Date('YYYY-MM-DD')` which shifts by timezone)
 
 ---
 
@@ -185,10 +213,9 @@ loop (up to 20 iterations):
 
 ---
 
-## What to Build Next (Post v0.2 Ideas)
+## What to Build Next (Post v0.3 Ideas)
 
 - Vercel deployment + environment variable configuration
 - Transaction history filterable by ticker
-- Historical performance chart (requires storing snapshots)
 - Support for additional tickers
 - Unit/property tests for pure functions in `portfolio.ts`

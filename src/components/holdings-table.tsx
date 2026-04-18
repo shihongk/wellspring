@@ -28,7 +28,7 @@ const tint = {
   alloc:    'bg-violet-50/40',          // Alloc, Target %, Gap
 };
 
-const cell  = 'px-3 py-3 whitespace-nowrap';
+const cell  = 'px-2 py-1.5 whitespace-nowrap';
 const cellR = `${cell} text-right`;
 
 // Helpers that combine alignment + tint
@@ -38,8 +38,21 @@ const td  = (t: string) => `${cell}  ${t}`;
 const tdR = (t: string) => `${cellR} ${t}`;
 
 export function HoldingsTable({ holdings, cash, grandTotalSGD, targetAllocations }: Props) {
+  // Total gain/loss: sum unrealised gains for holdings with known prices only
+  const holdingsWithGain = holdings.filter((h) => h.unrealizedGainSGD != null);
+  const totalGainSGD = holdingsWithGain.length > 0
+    ? holdingsWithGain.reduce((s, h) => s + h.unrealizedGainSGD!, 0)
+    : null;
+  const totalCostBasis = holdingsWithGain.reduce((s, h) => s + h.costBasisSGD, 0);
+  const totalGainPct = totalGainSGD != null && totalCostBasis > 0
+    ? (totalGainSGD / totalCostBasis) * 100
+    : null;
+  const totalGainColor = totalGainSGD != null
+    ? totalGainSGD >= 0 ? 'text-gain' : 'text-loss'
+    : '';
+
   return (
-    <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+    <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] text-left text-sm">
         <thead className="text-gray-600 border-b text-xs uppercase tracking-wide">
           <tr>
@@ -127,7 +140,9 @@ export function HoldingsTable({ holdings, cash, grandTotalSGD, targetAllocations
           <tr className="font-bold border-t-2 bg-gray-50">
             <td className={cell} colSpan={6}>Total</td>
             <td className={`${cellR} font-bold`}>{fmt(grandTotalSGD)}</td>
-            <td colSpan={5} />
+            <td className={`${cellR} font-bold ${totalGainColor}`}>{fmt(totalGainSGD)}</td>
+            <td className={`${cellR} font-bold ${totalGainColor}`}>{fmtPct(totalGainPct)}</td>
+            <td colSpan={3} />
           </tr>
         </tbody>
       </table>

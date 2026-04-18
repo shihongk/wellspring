@@ -67,8 +67,8 @@ export function AllocationChart({ data }: Props) {
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-8">
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-36 h-36 drop-shadow-sm" style={{ overflow: 'visible' }}>
+    <div className="flex flex-wrap items-center gap-4">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-24 h-24 drop-shadow-sm" style={{ overflow: 'visible' }}>
         {slices.map((s) => (
           <path
             key={s.ticker}

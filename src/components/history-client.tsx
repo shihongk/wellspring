@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { ValueHistoryChart } from '@/components/value-history-chart';
 
-type Range = '1M' | '3M' | '6M' | '1Y' | 'ALL';
-const RANGES: Range[] = ['1M', '3M', '6M', '1Y', 'ALL'];
+type Range = '1D' | 'YTD' | '1M' | '3M' | '6M' | '1Y' | 'ALL';
+const RANGES: Range[] = ['1D', 'YTD', '1M', '3M', '6M', '1Y', 'ALL'];
 const RANGE_DAYS: Record<Range, number | null> = {
+  '1D': 1,
+  'YTD': null,
   '1M': 30,
   '3M': 90,
   '6M': 180,
@@ -37,6 +39,11 @@ interface Props {
 
 function filterByRange(data: DataPoint[], range: Range): DataPoint[] {
   if (range === 'ALL' || data.length === 0) return data;
+  if (range === '1D') return data.slice(-2);
+  if (range === 'YTD') {
+    const jan1 = `${new Date().getFullYear()}-01-01`;
+    return data.filter((d) => d.date >= jan1);
+  }
   const days = RANGE_DAYS[range]!;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
@@ -127,20 +134,20 @@ export function HistoryClient({ chartData, breakdown }: Props) {
       </div>
 
       {/* Side-by-side layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
 
-        {/* Left: chart (controlled range, no internal selector) */}
-        <div>
+        {/* Left: chart — h-full so SVG stretches to match right column height */}
+        <div className="flex flex-col h-full">
           <ValueHistoryChart data={chartData} range={range} />
         </div>
 
         {/* Right: contribution breakdown */}
-        <div>
+        <div className="flex flex-col">
           {/* Period / all-time summary header */}
           <div className="flex items-baseline justify-between mb-1">
             <div>
               <p className="text-xs text-gray-400 uppercase tracking-wide">
-                {isAll ? 'All-time Return' : `${range} Return`}
+                {isAll ? 'All-time Return' : range === '1D' ? '1-Day Return' : range === 'YTD' ? 'YTD Return' : `${range} Return`}
               </p>
               {displayReturn != null ? (
                 <p className={`text-2xl font-bold ${displayReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -196,7 +203,7 @@ export function HistoryClient({ chartData, breakdown }: Props) {
           </div>
 
           {/* Footer */}
-          <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+          <div className="mt-auto pt-2 border-t border-gray-100 flex items-center justify-between">
             <span className="text-xs text-gray-400">Current total</span>
             <span className="text-sm font-bold text-gray-900">{fmtSGDFull(totalValueSGD)}</span>
           </div>

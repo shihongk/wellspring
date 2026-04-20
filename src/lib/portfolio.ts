@@ -15,7 +15,7 @@ export function computeNewAvgCost(oldShares: number, oldAvg: number, newShares: 
 }
 
 export function computeGap(targetPct: number, currentPct: number): number {
-  return Math.round((targetPct - currentPct) * 10) / 10;
+  return Math.round((currentPct - targetPct) * 10) / 10;
 }
 
 export function computeRecommendedUnits(plannedSGD: number, currentPriceSGD: number | null): number | null {

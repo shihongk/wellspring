@@ -13,12 +13,14 @@ import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env.local') });
 
 import YahooFinance from 'yahoo-finance2';
-import { getHoldings, getCash, upsertHistoryEntry } from '../src/lib/google-sheets';
+import { google } from 'googleapis';
+import { getHoldings, getCash } from '../src/lib/google-sheets';
 import { toSGD } from '../src/lib/fx';
+import { SHEET_NAMES } from '../src/lib/constants';
 
 const yf = new YahooFinance();
 
-const FROM_DATE = '2026-04-01';
+const FROM_DATE = '2026-01-01';
 const FALLBACK_FX = { USDSGD: 1.34, HKDSGD: 0.17 };
 
 // --- Date helpers (UTC-safe, avoids timezone shift) ---
@@ -79,16 +81,51 @@ function closestPrice(map: Map<string, number>, date: string): number | null {
 
 // --- Main ---
 
+function getSheetsClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
+      private_key: process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+    },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  return {
+    sheets: google.sheets({ version: 'v4', auth }),
+    spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID!,
+  };
+}
+
+async function getExistingDates(): Promise<Set<string>> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:A`,
+  });
+  const rows = res.data.values ?? [];
+  return new Set(rows.slice(1).map((r) => r[0]).filter(Boolean));
+}
+
+async function batchAppend(rows: string[][]): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:E`,
+    valueInputOption: 'RAW',
+    requestBody: { values: rows },
+  });
+}
+
 async function run() {
   const today = new Date().toISOString().slice(0, 10);
   const dates = getWeekdays(FROM_DATE, today);
 
   console.log(`[backfill] Date range: ${FROM_DATE} → ${today} (${dates.length} weekdays)`);
-  console.log(`[backfill] Fetching holdings & cash…`);
-  const [holdings, cash] = await Promise.all([getHoldings(), getCash()]);
+  console.log(`[backfill] Fetching holdings, cash & existing history dates…`);
+  const [holdings, cash, existingDates] = await Promise.all([getHoldings(), getCash(), getExistingDates()]);
 
   const tickers = holdings.map((h) => h.ticker);
   console.log(`[backfill] Holdings: ${tickers.join(', ')} + S$${cash.SGD.toFixed(2)} cash`);
+  console.log(`[backfill] Already have ${existingDates.size} date(s) in sheet.`);
   console.log(`[backfill] Fetching historical prices…\n`);
 
   // Fetch all tickers + FX pairs in parallel
@@ -98,25 +135,26 @@ async function run() {
   );
   const historyMap = Object.fromEntries(symbols.map((sym, i) => [sym, histories[i]]));
 
-  let written = 0;
+  const recordedAt = new Date().toISOString();
+  const newRows: string[][] = [];
   let skipped = 0;
 
   for (const date of dates) {
-    // Build FX rates for this date
+    if (existingDates.has(date)) {
+      console.log(`  ~ ${date}  — already exists, skipped`);
+      skipped++;
+      continue;
+    }
+
     const usdsgd = closestPrice(historyMap['USDSGD=X'], date) ?? FALLBACK_FX.USDSGD;
     const hkdsgd = closestPrice(historyMap['HKDSGD=X'], date) ?? FALLBACK_FX.HKDSGD;
     const fxRates = { USDSGD: usdsgd, HKDSGD: hkdsgd };
 
-    // Compute total value: sum all holdings + cash
     let totalValueSGD = cash.SGD;
     let anyMissing = false;
-
     for (const h of holdings) {
       const price = closestPrice(historyMap[h.ticker], date);
-      if (price == null) {
-        anyMissing = true;
-        break;
-      }
+      if (price == null) { anyMissing = true; break; }
       totalValueSGD += toSGD(h.shares * price, h.currency, fxRates);
     }
 
@@ -126,22 +164,17 @@ async function run() {
       continue;
     }
 
-    await upsertHistoryEntry({
-      date,
-      totalValueSGD,
-      fxUSDSGD: usdsgd,
-      fxHKDSGD: hkdsgd,
-      recordedAt: new Date().toISOString(),
-    });
-
-    const formatted = totalValueSGD.toLocaleString('en-SG', {
-      style: 'currency', currency: 'SGD', minimumFractionDigits: 2,
-    });
+    const formatted = totalValueSGD.toLocaleString('en-SG', { style: 'currency', currency: 'SGD', minimumFractionDigits: 2 });
     console.log(`  ✓ ${date}  ${formatted}`);
-    written++;
+    newRows.push([date, totalValueSGD.toString(), usdsgd.toString(), hkdsgd.toString(), recordedAt]);
   }
 
-  console.log(`\n[backfill] Done — ${written} rows written, ${skipped} skipped.`);
+  if (newRows.length > 0) {
+    console.log(`\n[backfill] Writing ${newRows.length} rows in one batch…`);
+    await batchAppend(newRows);
+  }
+
+  console.log(`[backfill] Done — ${newRows.length} rows written, ${skipped} skipped.`);
 }
 
 run().catch((err) => {

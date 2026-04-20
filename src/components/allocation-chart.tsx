@@ -21,7 +21,8 @@ const R_INNER = 28;
 
 function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  const round = (n: number) => Math.round(n * 1e4) / 1e4;
+  return { x: round(cx + r * Math.cos(rad)), y: round(cy + r * Math.sin(rad)) };
 }
 
 function donutSlicePath(cx: number, cy: number, rOuter: number, rInner: number, startDeg: number, endDeg: number) {
@@ -67,8 +68,8 @@ export function AllocationChart({ data }: Props) {
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-4">
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-24 h-24 drop-shadow-sm" style={{ overflow: 'visible' }}>
+    <div className="flex flex-col items-center gap-5 w-full">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-40 h-40 drop-shadow-sm" style={{ overflow: 'visible' }}>
         {slices.map((s) => (
           <path
             key={s.ticker}
@@ -86,12 +87,15 @@ export function AllocationChart({ data }: Props) {
         </text>
       </svg>
 
-      <ul className="space-y-2 text-sm">
+      <ul className="w-full space-y-1.5 text-sm">
         {slices.map((s) => (
           <li key={s.ticker} className="flex items-center gap-2.5">
             <span className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: s.color }} />
             <span className="font-medium text-gray-700 w-16">{s.ticker}</span>
-            <span className="text-gray-500">{s.pct.toFixed(1)}%</span>
+            <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+              <div className="h-1.5 rounded-full" style={{ width: `${s.pct}%`, backgroundColor: s.color }} />
+            </div>
+            <span className="text-gray-500 w-10 text-right tabular-nums">{s.pct.toFixed(1)}%</span>
           </li>
         ))}
       </ul>

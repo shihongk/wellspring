@@ -168,11 +168,13 @@ export function DashboardClient({
       </div>
 
       {/* ── Allocation | History & Attribution ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
 
-        <Card className="p-4">
+        <Card className="p-4 flex flex-col">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Allocation</h2>
-          <AllocationPanel snapshot={snapshot} excludeCash={excludeCash} />
+          <div className="flex-1 flex items-center">
+            <AllocationPanel snapshot={snapshot} excludeCash={excludeCash} />
+          </div>
         </Card>
 
         <Card className="p-4 lg:col-span-2">

@@ -1,3 +1,5 @@
+'use client';
+
 import { PortfolioSnapshot } from '@/types';
 import { formatSGD, formatDateTime } from '@/lib/fx';
 import { Card } from '@/components/ui/card';

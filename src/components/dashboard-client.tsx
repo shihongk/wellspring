@@ -8,7 +8,7 @@ import { HistoryClient, type BreakdownItem } from '@/components/history-client';
 import { Card } from '@/components/ui/card';
 import { SnapshotButton } from '@/components/snapshot-button';
 import { RefreshButton } from '@/components/refresh-button';
-import { formatSGD } from '@/lib/fx';
+import { formatSGD, formatDateTime } from '@/lib/fx';
 
 interface Props {
   snapshot: PortfolioSnapshot;
@@ -17,7 +17,7 @@ interface Props {
   breakdown: BreakdownItem[];
   fxRates: FxRates;
   stale: boolean;
-  fetchedAtLabel: string;
+  fetchedAt: string | null;
 }
 
 function fmtPct(v: number): string {
@@ -30,7 +30,7 @@ function fmtSGDCompact(v: number): string {
 
 export function DashboardClient({
   snapshot, targetAllocations, chartData, breakdown,
-  fxRates, stale, fetchedAtLabel,
+  fxRates, stale, fetchedAt,
 }: Props) {
   const [excludeCash, setExcludeCash] = useState(true);
 
@@ -121,7 +121,9 @@ export function DashboardClient({
               HKD/SGD {fxRates.HKDSGD.toFixed(4)}
             </span>
           </div>
-          <p className="text-xs text-gray-400">{fetchedAtLabel}</p>
+          <p className="text-xs text-gray-400">
+            {stale ? 'Prices unavailable' : fetchedAt ? `Fetched ${formatDateTime(fetchedAt)}` : ''}
+          </p>
         </Card>
 
         <Card className="flex flex-col gap-1.5 p-3">

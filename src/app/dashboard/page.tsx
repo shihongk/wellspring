@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 import { getDashboardData } from '@/lib/google-sheets';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { computePortfolioSnapshot } from '@/lib/portfolio';
-import { formatDateTime } from '@/lib/fx';
 import { DashboardClient } from '@/components/dashboard-client';
 import { type BreakdownItem } from '@/components/history-client';
 
@@ -55,10 +54,6 @@ export default async function DashboardPage() {
     },
   ];
 
-  const fetchedAtLabel = stale
-    ? 'Prices unavailable'
-    : fetchedAt ? `Fetched ${formatDateTime(fetchedAt)}` : '';
-
   return (
     <DashboardClient
       snapshot={snapshot}
@@ -67,7 +62,7 @@ export default async function DashboardPage() {
       breakdown={breakdown}
       fxRates={fxRates}
       stale={stale}
-      fetchedAtLabel={fetchedAtLabel}
+      fetchedAt={fetchedAt ?? null}
     />
   );
 }

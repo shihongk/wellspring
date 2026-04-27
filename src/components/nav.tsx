@@ -43,6 +43,13 @@ export function Nav() {
           );
         })}
       </div>
+
+      <a
+        href="/api/auth/logout"
+        className="mt-auto px-3 py-2 rounded-md text-xs font-medium text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors"
+      >
+        Sign out
+      </a>
     </nav>
   );
 }

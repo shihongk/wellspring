@@ -6,9 +6,9 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
-## Current State — v0.4 (2026-04-18) — COMPLETE
+## Current State — v0.4.1 (2026-04-20) — COMPLETE
 
-All v0.1 through v0.4 features are fully implemented and committed to `main`.
+All v0.1 through v0.4.1 features are fully implemented and committed to `main`.
 
 ---
 
@@ -66,9 +66,9 @@ All v0.1 through v0.4 features are fully implemented and committed to `main`.
 | `DashboardClient` | client | Full dashboard page — owns `excludeCash` state; renders header (with toggle), KPI cards, holdings table, allocation panel, history & attribution |
 | `HoldingsTable` | client | Holdings table with 4 colour-coded column groups (position/market/perf/alloc), total gain/loss row |
 | `AllocationPanel` | client | Controlled donut chart — accepts `excludeCash` from parent, no internal state |
-| `AllocationChart` | client | SVG donut chart (120×120 viewBox, w-24 rendered) |
-| `HistoryClient` | client | Shared range selector → `ValueHistoryChart` (left) + contribution breakdown (right); ALL range uses cost-basis P&L |
-| `ValueHistoryChart` | client | Pure SVG line chart — uncontrolled (own range selector) or controlled via `range` prop; 160px height |
+| `AllocationChart` | client | SVG donut chart (120×120 viewBox, w-40 rendered); vertical layout with proportional bar per row; coords rounded to 4dp to prevent hydration mismatch |
+| `HistoryClient` | client | Shared range selector (1D/YTD/1M/3M/6M/1Y/ALL) → `ValueHistoryChart` (left) + contribution breakdown (right); ALL range uses cost-basis P&L |
+| `ValueHistoryChart` | client | SVG line chart with `preserveAspectRatio="none"` + `height="100%"`; Y/X labels in HTML overlays (not stretched); tooltip flips side near right edge; controlled via `range` prop or self-managed |
 | `SnapshotButton` | client | Manual record trigger with 5 states (idle/loading/success/skipped/error) |
 | `AllocationEditor` | client | Target % inputs per equity, running total, cash display |
 | `ScheduleViewer` | client | Editable investment schedule; bidirectional units ↔ SGD; totals row |
@@ -81,7 +81,7 @@ All v0.1 through v0.4 features are fully implemented and committed to `main`.
 | Script | Purpose |
 |---|---|
 | `scripts/snapshot.ts` | Standalone daily snapshot — loads `.env.local` via dotenv, no HTTP server needed. Run: `npx tsx scripts/snapshot.ts` |
-| `scripts/backfill.ts` | One-off historical backfill — fetches actual closing prices per day from Yahoo Finance, uses today's holdings. Run: `npx tsx scripts/backfill.ts` |
+| `scripts/backfill.ts` | One-off historical backfill — reads existing dates once, batch-appends all new rows in a single Sheets call (avoids read quota). `FROM_DATE = 2026-01-01`. Run: `npx tsx scripts/backfill.ts` |
 
 ---
 
@@ -159,7 +159,9 @@ loop (up to 20 iterations):
 
 ### Gap Calculation
 
-`computeGap(targetPct, currentPct) = Math.round((targetPct - currentPct) * 10) / 10`
+`computeGap(targetPct, currentPct) = Math.round((currentPct - targetPct) * 10) / 10`
+
+Negative = underweight (current < target, shown in red). Positive = overweight.
 
 ### Recommended Units
 

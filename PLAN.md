@@ -8,6 +8,7 @@
 | v0.2 | 2026-04-16 | ✅ Complete |
 | v0.3 | 2026-04-16 | ✅ Complete |
 | v0.4 | 2026-04-18 | ✅ Complete |
+| v0.4.1 | 2026-04-20 | ✅ Complete |
 
 ---
 
@@ -56,6 +57,23 @@ Replaced the flat `MonthlyPlan` sheet with two capabilities: target allocation e
 - `Nav` — converted from top bar to fixed left sidebar
 - Layout — full-width (no max-w constraint), responsive tables with `min-w` + `overflow-x-auto`
 - Plan page — three-section layout: PlanSnapshot + AllocationEditor + ScheduleViewer side-by-side
+
+---
+
+## v0.4.1 — UX Patches (Complete)
+
+Patch release fixing chart rendering, allocation panel layout, gap sign, and backfill reliability.
+
+### Changes shipped
+
+- **History chart ranges** — added `1D` (last 2 snapshots) and `YTD` (Jan 1 of current year) to both the dashboard history panel and the `/history` page
+- **Chart axis rendering** — Y-axis labels and X-axis labels moved from SVG to HTML overlays; SVG uses `preserveAspectRatio="none"` + `height="100%"` so the chart area fills the column height and labels render at normal font size without distortion
+- **Tooltip overflow fix** — tooltip is rendered outside the scroll container and flips to the left side when the cursor is past 60% of chart width; no horizontal scrollbar
+- **Allocation panel** — donut enlarged (`w-40`), layout changed to vertical (donut above legend), each legend row has an inline proportional bar; panel height matches the History & Attribution card
+- **X-axis / "Current total" alignment** — chart column uses `flex flex-col h-full`; x-axis label row with `border-t border-gray-100` at the bottom aligns with the breakdown footer
+- **Gap sign corrected** — `computeGap` now returns `currentPct − targetPct` (negative = underweight, shown in red)
+- **Hydration fix** — `polarToCartesian` rounds coordinates to 4 decimal places to prevent SSR/client path mismatch in the donut SVG
+- **Backfill script** — reads existing dates in one call then batch-appends all new rows in a single Sheets API request; avoids per-row read quota exhaustion; `FROM_DATE` set to `2026-01-01` for YTD backfill
 
 ---
 

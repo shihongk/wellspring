@@ -1,8 +1,28 @@
 @AGENTS.md
+@MEMORY.md
 
 # Wellspring — Claude Instructions
 
-SPEC.md is the authoritative source of truth for this project. Read it before making any design decisions. Do not deviate from it without being explicitly asked.
+## Key documents
+
+| File | Purpose | When to read |
+|---|---|---|
+| `SPEC.md` | Authoritative spec — design decisions, data model, UI rules | Before any design decision |
+| `HANDOVER.md` | Current implementation state — what exists and how it works | Start of session / before touching a feature |
+| `ROADMAP.md` | Idea backlog — features not yet designed | When a new feature comes up |
+| `PLAN.md` | Versioned implementation plans with checklists | During active feature work |
+| `MEMORY.md` | User's standing instructions (this file's sibling) | Auto-loaded every session |
+
+Do not deviate from SPEC.md without being explicitly asked.
+
+---
+
+## Session workflow
+
+1. **Before touching a feature** — check HANDOVER.md to understand what already exists.
+2. **New feature request** — check ROADMAP.md to see if it's tracked; confirm approach before writing code.
+3. **After shipping** — update HANDOVER.md (current state) and CLAUDE.md (if any convention changed).
+4. **Idea, not ready to build** — add it to ROADMAP.md backlog, not PLAN.md.
 
 ---
 
@@ -23,6 +43,7 @@ Key patterns from this version (see SPEC.md §13 for full detail):
 - **Route Handlers use Web APIs** — `Request` and `Response.json(...)`, not `NextApiRequest`/`NextApiResponse`.
 - **Async Server Components** — pages and layouts can directly `await` data-fetching functions.
 - **Client Components only at leaves** — nav, forms, chart need `'use client'`. Pages stay as Server Components.
+- **Middleware is now `proxy.ts`** — file is `src/proxy.ts`, export is `export function proxy(request: NextRequest)`. The `middleware.ts` convention is deprecated.
 
 ---
 
@@ -55,7 +76,14 @@ function getSheetsClient() {
 ```
 
 ### Yahoo Finance
-Import as `import YahooFinance from 'yahoo-finance2'` and use `new YahooFinance()`. Batch-fetch all tickers and FX pairs with `Promise.allSettled`. Use `result.regularMarketPrice` for price.
+Import as `import YahooFinance from 'yahoo-finance2'`. Instantiate per-invocation inside the function (same pattern as the Sheets client — do not use a module-level `yf` singleton):
+```ts
+export async function fetchPricesAndFx() {
+  const yf = new YahooFinance();
+  // ...
+}
+```
+Batch-fetch all tickers and FX pairs with `Promise.allSettled`. Use `result.regularMarketPrice` for price.
 
 ### FX conversion
 Always call `toSGD(amount, currency, fxRates)` from `src/lib/fx.ts`. Never access FX rates from a global or module-level cache.
@@ -66,6 +94,11 @@ All actions in `src/app/lib/actions.ts` start with `'use server'`. After every m
 ### API error shape
 All API routes return `{ error: string }` with the appropriate HTTP status on failure.
 
+### Gap calculation in plan/allocation context
+`computeGap(targetPct, currentPct)` returns `currentPct - targetPct`. **Negative = underweight** (shown in red/loss colour); positive = overweight. Do not invert.
+
+When computing gaps in the plan snapshot, use equity-only allocation (exclude cash from the denominator), not the portfolio-wide `allocationPct` on each holding.
+
 ---
 
 ## Styling
@@ -73,7 +106,13 @@ All API routes return `{ error: string }` with the appropriate HTTP status on fa
 Tailwind v4. SGD display format: `S$1,234.56` (2 decimal places, thousands separator). Custom tokens in `globals.css`:
 - `--color-gain: #16a34a`
 - `--color-loss: #dc2626`
-- `--color-primary: #0f766e`
+- `--color-primary: #0e7490`
+- `--color-primary-dark: #4338ca`
+- `--color-accent: #22c55e`
+- `--color-nav-bg: #0f172a`
+- `--color-nav-text: #cbd5e1`
+- `--color-nav-active: #67e8f9`
+- `--color-page-bg: #f0f9ff`
 
 ---
 
@@ -88,8 +127,16 @@ Tailwind v4. SGD display format: `S$1,234.56` (2 decimal places, thousands separ
 
 ## Holdings in Scope
 
-`BRK-B` (USD), `JK8.SI` (SGD), `2823.HK` (HKD), `2838.HK` (HKD), `CASH` (SGD).
+`BRK-B` (USD), `JK8.SI` (SGD), `2823.HK` (HKD), `2838.HK` (HKD), `TSM` (USD), `CASH` (SGD).
 FX pairs: `USDSGD=X`, `HKDSGD=X`.
+
+---
+
+## Scripts (`scripts/`)
+
+- Load `.env.local` via `config({ path: resolve(__dirname, '../.env.local') })` from `dotenv` — never rely on the shell environment.
+- Use UTC-safe date construction: parse date parts manually and use `Date.UTC(y, m-1, d)`. Never `new Date('YYYY-MM-DD')` — it shifts by timezone.
+- Run via `npx tsx scripts/<name>.ts`.
 
 ---
 

@@ -413,6 +413,69 @@ export async function upsertHistoryEntry(entry: PortfolioHistoryEntry): Promise<
   }
 }
 
+export async function getDashboardData(): Promise<{
+  holdings: Holding[];
+  cash: CashPosition;
+  targetAllocations: TargetAllocationRow[];
+  history: PortfolioHistoryEntry[];
+}> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: [
+      `${SHEET_NAMES.HOLDINGS}!A:E`,
+      `${SHEET_NAMES.CASH}!A:C`,
+      `${SHEET_NAMES.TARGET_ALLOCATION}!A:B`,
+      `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:E`,
+    ],
+  });
+
+  const [holdingsRange, cashRange, allocRange, historyRange] = res.data.valueRanges ?? [];
+
+  const holdingRows = holdingsRange?.values ?? [];
+  const holdings: Holding[] = holdingRows.length <= 1 ? [] : holdingRows.slice(1).map((row) => ({
+    ticker: row[0],
+    name: row[1],
+    shares: parseFloat(row[2]),
+    avgCostLocal: parseFloat(row[3]),
+    currency: row[4] as Holding['currency'],
+  }));
+
+  const cashRows = cashRange?.values ?? [];
+  let cash: CashPosition = { accounts: [], SGD: 0 };
+  if (cashRows.length > 1) {
+    const dataRows = cashRows.slice(1).filter((r) => r.length >= 2);
+    const isNewFormat = cashRows[0]?.[0] === 'account';
+    const accounts: CashAccount[] = dataRows.map((row) =>
+      isNewFormat
+        ? { account: row[0], currency: 'SGD', amount: parseFloat(row[2]) || 0 }
+        : { account: 'Default', currency: 'SGD', amount: parseFloat(row[1]) || 0 }
+    );
+    cash = { accounts, SGD: accounts.reduce((sum, a) => sum + a.amount, 0) };
+  }
+
+  const allocRows = allocRange?.values ?? [];
+  const targetAllocations: TargetAllocationRow[] = allocRows.length <= 1 ? [] : allocRows.slice(1).map((row) => ({
+    ticker: row[0],
+    targetPct: parseFloat(row[1] || '0'),
+  }));
+
+  const historyRows = historyRange?.values ?? [];
+  const history: PortfolioHistoryEntry[] = historyRows.length <= 1 ? [] : historyRows
+    .slice(1)
+    .map((row) => ({
+      date: row[0],
+      totalValueSGD: parseFloat(row[1]),
+      fxUSDSGD: parseFloat(row[2]),
+      fxHKDSGD: parseFloat(row[3]),
+      recordedAt: row[4],
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return { holdings, cash, targetAllocations, history };
+}
+
 export async function writeFxRates(rates: FxRates): Promise<void> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const fetchedAt = new Date().toISOString();

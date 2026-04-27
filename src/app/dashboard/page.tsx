@@ -1,9 +1,8 @@
 export const dynamic = 'force-dynamic';
 
-import { getHoldings, getCash, getTargetAllocations, getPortfolioHistory } from '@/lib/google-sheets';
+import { getDashboardData } from '@/lib/google-sheets';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { computePortfolioSnapshot } from '@/lib/portfolio';
-import { recordSnapshotAction } from '@/app/lib/actions';
 import { formatDateTime } from '@/lib/fx';
 import { DashboardClient } from '@/components/dashboard-client';
 import { type BreakdownItem } from '@/components/history-client';
@@ -17,19 +16,13 @@ const TICKER_COLORS: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const [holdings, cash, targetAllocations, { fxRates, prices, stale, fetchedAt }, history] =
+  const [{ holdings, cash, targetAllocations, history }, { fxRates, prices, stale, fetchedAt }] =
     await Promise.all([
-      getHoldings(),
-      getCash(),
-      getTargetAllocations().catch(() => []),
+      getDashboardData(),
       fetchPricesAndFx(),
-      getPortfolioHistory().catch(() => []),
     ]);
 
   const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, stale, fetchedAt);
-
-  // Auto-record snapshot fire-and-forget
-  if (!stale) recordSnapshotAction().catch(() => {});
 
   const targetAllocMap = Object.fromEntries(
     targetAllocations.map((r) => [r.ticker, r.targetPct])

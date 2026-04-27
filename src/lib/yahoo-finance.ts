@@ -3,8 +3,6 @@ import { FxRates } from '@/types';
 import { EQUITY_TICKERS, FX_SYMBOLS, FALLBACK_FX_RATES } from '@/lib/constants';
 import { getFxRates, writeFxRates } from '@/lib/google-sheets';
 
-const yf = new YahooFinance();
-
 export interface PricesAndFx {
   fxRates: FxRates;
   prices: Record<string, { price: number | null; currency: string }>;
@@ -13,6 +11,7 @@ export interface PricesAndFx {
 }
 
 export async function fetchPricesAndFx(): Promise<PricesAndFx> {
+  const yf = new YahooFinance();
   const allSymbols = [...EQUITY_TICKERS, ...FX_SYMBOLS];
   const results = await Promise.allSettled(allSymbols.map(sym => yf.quote(sym)));
   

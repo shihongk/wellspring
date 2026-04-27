@@ -102,6 +102,8 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
   const totalSGD = snapshot.totalValueSGD;
   const cashSGD = snapshot.cash.SGD;
 
+  const equityTotal = snapshot.holdings.reduce((s, h) => s + (h.totalValueSGD ?? 0), 0);
+
   const buyRecs = computeBuyRecommendations(snapshot.holdings, cashSGD, targetMap);
   const totalToBuy = Object.values(buyRecs).reduce((s, r) => s + r.buySGD, 0);
   const isPartial = Object.values(buyRecs).some((r) => r.note === 'partial');
@@ -111,13 +113,17 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
   const rows = snapshot.holdings.map((h) => {
     const targetPct = targetMap[h.ticker];
     const hasTarget = targetPct != null && targetPct > 0;
-    const gap = hasTarget && h.allocationPct != null ? computeGap(targetPct, h.allocationPct) : null;
+    // Use equity-only alloc (same basis as dashboard with excludeCash=true)
+    const equityOnlyAlloc = equityTotal > 0 && h.totalValueSGD != null
+      ? (h.totalValueSGD / equityTotal) * 100
+      : null;
+    const gap = hasTarget && equityOnlyAlloc != null ? computeGap(targetPct, equityOnlyAlloc) : null;
     const rec = buyRecs[h.ticker];
     const buySGD = rec?.buySGD ?? null;
     const buyUnits = buySGD != null && h.currentPriceSGD != null && h.currentPriceSGD > 0
       ? Math.floor(buySGD / h.currentPriceSGD)
       : null;
-    return { h, targetPct, hasTarget, gap, rec, buySGD, buyUnits };
+    return { h, targetPct, hasTarget, gap, rec, buySGD, buyUnits, equityOnlyAlloc };
   });
 
   const sumValue    = rows.reduce((s, r) => s + (r.h.totalValueSGD ?? 0), 0);
@@ -164,7 +170,7 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
           </tr>
         </thead>
         <tbody className="divide-y">
-          {rows.map(({ h, targetPct, hasTarget, gap, rec, buySGD, buyUnits }) => {
+          {rows.map(({ h, targetPct, hasTarget, gap, rec, buySGD, buyUnits, equityOnlyAlloc }) => {
             const gapColor = gap == null ? '' : gap > 0 ? 'text-gain' : gap < 0 ? 'text-loss' : 'text-gray-500';
             const gainColor = h.unrealizedGainSGD != null
               ? h.unrealizedGainSGD >= 0 ? 'text-gain' : 'text-loss'
@@ -182,7 +188,7 @@ export function PlanSnapshot({ snapshot, targetAllocations }: Props) {
                     ? <>{h.currentPriceLocal.toFixed(2)} <span className="text-xs text-gray-400">{h.currency}</span></>
                     : nd}
                 </td>
-                <td className="px-4 py-2 text-right">{fmtPct(h.allocationPct)}</td>
+                <td className="px-4 py-2 text-right">{fmtPct(equityOnlyAlloc)}</td>
                 <td className="px-4 py-2 text-right text-gray-500">{hasTarget ? `${targetPct.toFixed(1)}%` : nd}</td>
                 <td className={`px-4 py-2 text-right font-medium ${gapColor}`}>
                   {gap != null ? `${gap > 0 ? '+' : ''}${gap.toFixed(1)}%` : nd}

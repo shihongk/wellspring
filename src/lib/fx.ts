@@ -37,7 +37,8 @@ export function formatDate(value: string): string {
 // Format an ISO timestamp as "14 Apr 2026, 10:32"
 export function formatDateTime(value: string): string {
   const d = new Date(value);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const tz = 'Asia/Singapore';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: tz })
     + ', '
-    + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz });
 }

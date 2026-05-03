@@ -82,3 +82,22 @@ export interface PortfolioHistoryEntry {
   fxHKDSGD: number;
   recordedAt: string;   // ISO 8601 UTC
 }
+
+export interface ExpenseTransaction {
+  id: string;
+  date: string;           // YYYY-MM-DD (transaction date)
+  postDate: string;       // YYYY-MM-DD (same as date if only one date col)
+  description: string;
+  amount: number;         // always positive
+  direction: 'debit' | 'credit';
+  balance: number | null; // null for credit cards
+  account: string;        // e.g. "UOB Preferred Visa"
+  category: string;
+  sourceFile: string;
+  excluded?: boolean;
+}
+
+export interface ExpenseRule {
+  merchant: string; // case-insensitive substring match
+  category: string;
+}

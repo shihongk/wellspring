@@ -14,6 +14,7 @@ import {
   replaceInvestmentSchedule,
   upsertHistoryEntry,
 } from '@/lib/google-sheets';
+import { updateExpenseCategory, updateExpenseExcluded, applyRuleToExisting, upsertExpenseRule, bulkUpdateExpenseCategory } from '@/lib/expenses/sheets';
 import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow } from '@/types';
@@ -131,4 +132,25 @@ export async function renameCashAccountAction(oldName: string, newName: string, 
   await upsertCashAccount(newName, amount);
   revalidatePath('/dashboard');
   revalidatePath('/cash');
+}
+
+export async function updateExpenseCategoryAction(id: string, category: string): Promise<void> {
+  await updateExpenseCategory(id, category);
+  revalidatePath('/expenses');
+}
+
+export async function setExpenseExcludedAction(id: string, excluded: boolean): Promise<void> {
+  await updateExpenseExcluded(id, excluded);
+  revalidatePath('/expenses');
+}
+
+export async function bulkUpdateCategoryAction(ids: string[], category: string): Promise<void> {
+  await bulkUpdateExpenseCategory(ids, category);
+  revalidatePath('/expenses');
+}
+
+export async function createExpenseRuleAction(merchant: string, category: string): Promise<void> {
+  await upsertExpenseRule({ merchant, category });
+  await applyRuleToExisting(merchant, category);
+  revalidatePath('/expenses');
 }

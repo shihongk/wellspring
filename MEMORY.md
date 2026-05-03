@@ -31,7 +31,5 @@ Instructions I give once and expect applied automatically. Edit this file betwee
 
 ## Project-specific
 
-<!-- Add any recurring reminders here. Examples:
-- "Always test the plan page gap colours after any portfolio.ts change."
-- "The launchd job runs at 18:00 — don't break scripts/snapshot.ts."
--->
+- **Annual Fees:** When displaying annual fees, group them by card/account to deduplicate GST items. Omit the specific amount and description; only show the card name and date to track waivers.
+- **Expense Charts:** Keep the "Hide investment" filter alongside "Hide excluded" so the Investment category doesn't skew the visual overview.

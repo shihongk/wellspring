@@ -12,41 +12,51 @@ Ideas and future work. **Do not design here** — just capture intent. When read
 
 ## Backlog
 
-### Expense tracker (major feature)
+### Historical & Predictive Projections
+- **Projection Logic:** Calculate future projections based on simple historical averages.
+  - Category-specific: Project both expenses and income at the category level.
+  - Configurable Period: Custom month picker allowing selection of complete past months to form the baseline average (avoiding incomplete current months).
+  - Exclusions: Allow specific transactions or categories to be excluded from the projection calculation.
+- **Manual Adjustments:** Provide the ability to manually override/adjust the calculated projection for specific categories/months. Store these manual overrides in a new Google Sheets tab (e.g., `ExpenseProjections`).
+- **Visualization & UI:**
+  - Create a dedicated "Projections" tab within the existing Expenses view.
+  - Use bar charts to clearly differentiate between historical data and projected data.
+  - Summarize projected quarterly, 6-monthly, and annual expenditure patterns and net cash flow (since income is included).
 
-Dobin-style expense categorization: upload bank statements → auto-categorize → review → monthly/category breakdown.
+### Wealth & Holistic Projections
+- **CPF Integration:** Ability to upload and parse CPF statements.
+- **Holistic Wealth Projections:** Combine cash flow projections (income/expenses) with investment/holdings data and CPF to create long-term wealth projections.
 
-**Core flow**
-1. User uploads CSV/PDF bank statement
-2. Parser extracts rows: date, description, amount, debit/credit
-3. Claude API categorizes each transaction by merchant name (Food, Transport, Shopping, Healthcare, Entertainment, Travel, Income, etc.)
-4. User reviews and can override categories
-5. Transactions stored; viewable as monthly summary and category breakdown
+### Expense tracker — v0.5.x improvements
 
-**Decisions made**
-- Build inside Wellspring (not a separate project) — same codebase, nav, auth, deploy. "Merge later" is a trap.
-- Storage: Google Sheets — personal volume (~1–2k rows/year) is well within Sheets limits; no new service or schema migrations needed. Reassess if it feels slow after real usage.
-- CSV only, no PDF — PDF parsing is fragile and bank-dependent; CSV is clean and predictable.
-- Start with one bank's CSV format first (DBS or whichever the user actually uses).
-- Categorization via Claude API — batch merchant names in one prompt per upload; add `ANTHROPIC_API_KEY` to Vercel env vars when ready.
-- Build into `src/app/expenses/` and `src/components/expenses/` — no overlap with existing portfolio code.
+These came out of first real-data use. Group them into a patch release when ready.
 
-**Still to decide before designing**
-- Which bank's CSV to start with? (Determines the exact column layout and parser logic.)
-- Categories: use a fixed taxonomy for now (Food & Drink, Transport, Groceries, Shopping, Healthcare, Entertainment, Travel, Utilities, Subscriptions, Income, Transfer, Other) — user-defined categories later.
-- Import credits (income/transfers) or debit transactions only?
-- Deduplication strategy: hash of (date + description + amount) to detect duplicate uploads?
+**Display**
+- **Number formatting** — amounts should display as `1,000.00` not `1000.00` throughout the expenses UI
+- **Income panel** — credit transactions are currently hidden from the breakdown; add a separate collapsible panel within `/expenses` to show income/credits for the month (e.g. salary, PayNow received, interest)
+- **Annual fee flag** — detect `ANNUAL MEMBERSHIP FEE` (or similar) on any credit card transaction; surface these in a dedicated notice/panel so the user remembers to call the bank and request a waiver
 
-**Technical notes**
-- File upload: Next.js App Router route handler accepting `multipart/form-data`; Vercel free tier limits body to 4.5MB (fine for CSVs)
-- Claude API cost: ~200 transactions × ~20 tokens = ~4k tokens per upload; negligible
-- New Sheets tabs needed: `Expenses` (one row per transaction) and possibly `ExpenseCategories` (user overrides / merchant→category rules)
-- `ANTHROPIC_API_KEY` env var needed in Vercel and `.env.local` when building this
+**Categorization**
+- **Richer built-in rules** — `Other` category is too large; recommended additions to `BUILT_IN_RULES`:
+  - `GRAB FOOD`, `DELIVEROO`, `FOODPANDA`, `MCDONALDS`, `KFC`, `STARBUCKS`, `KOPITIAM`, `HAWKER` → `Food & Drink`
+  - `COMFORT`, `GOJEK`, `TADA`, `BUS`, `MRT`, `EZ-LINK`, `LTA`, `SMRT` → `Transport`
+  - `GUARDIAN`, `WATSONS`, `UNITY`, `NTUC PHARMACY`, `RAFFLES MEDICAL`, `POLYCLINIC` → `Healthcare`
+  - `SHAW`, `CATHAY`, `GV`, `GOLDEN VILLAGE`, `NETFLIX`, `SPOTIFY`, `DISNEY`, `APPLE.COM/BILL` → `Entertainment`
+  - `IKEA`, `COURTS`, `HARVEY NORMAN`, `CHALLENGER`, `DYSON` → `Shopping`
+  - `NTUC`, `COLD STORAGE`, `FAIRPRICE`, `GIANT`, `SHENG SIONG`, `PRIME SUPERMARKET` → `Groceries`
+  - `SINGTEL`, `STARHUB`, `M1`, `CIRCLES`, `SP GROUP`, `PUB` → `Utilities`
+  - `GOOGLE ONE`, `ICLOUD`, `DROPBOX`, `ADOBE`, `GITHUB`, `CHATGPT`, `CLAUDE` → `Subscriptions`
+  - `AGODA`, `BOOKING.COM`, `EXPEDIA`, `AIRBNB`, `SINGAPORE AIRLINES`, `SCOOT`, `CHANGI` → `Travel`
+- **New category: `Investment`** — add to `EXPENSE_CATEGORIES`; for recurring outward transfers to investment platforms (Tiger Brokers, Moomoo, Interactive Brokers, etc.); user can assign via rule or manually
+- **Exclude credit card bill payments from income** — `GIRO PAYMENT`, `AUTOPAY`, `BILL PAYMENT` on a credit card account should be `Transfer` (debit), not income; currently these flip to `credit` direction in the parsers which makes them appear as income
 
-**Minimum viable scope**
-- Upload CSV → parse → Claude categorizes → user reviews/overrides → saved to Sheets
-- Views: monthly total by category (bar/pie), transaction list with filter by month/category
-- Manual override per transaction, persisted back to Sheets
+**Transaction management**
+- **Self-transfer exclusion** — transfers between own accounts (e.g. UOB One → UOB Lady's) are double-counted (debit on one, credit on the other); design options:
+  - Option A: user marks both legs as `Transfer (own)` and they are excluded from all stats
+  - Option B: auto-detect same-amount same-date debit+credit pair across accounts
+  - Lean towards Option A (user-controlled, safer for ambiguous amounts)
+- **Exclusion flag** — individual transactions can be flagged as excluded (e.g. wife transferring money in); excluded rows still stored in sheet but omitted from breakdown totals and charts; UI needs a toggle per row and a "show excluded" option
+- **Vendor rule generalization** — when a transaction has a verbose reference (e.g. `NETS Debit-Consumer WESTERN12157400`), allow user to define a prefix/substring rule that maps all matching future transactions to a category; stored in `ExpenseRules` sheet (same as today) — just need UI to make rule creation easy from a transaction row (e.g. "Create rule from this" button that pre-fills merchant with the common prefix)
 
 ---
 

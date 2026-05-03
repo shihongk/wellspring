@@ -6,6 +6,77 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.5 (complete, 2026-05-03) — EXPENSE TRACKER
+
+All 12 phases complete + post-launch UI/categorisation improvements. 103 tests passing.
+
+### v0.5 — what was built
+
+| File | Purpose |
+|---|---|
+| `src/types/index.ts` | `ExpenseTransaction` (incl. `excluded?: boolean`), `ExpenseRule` added |
+| `src/lib/constants.ts` | `SHEET_NAMES`, `EXPENSE_CATEGORIES` (21 categories), `BUILT_IN_RULES` (~60 rules) |
+| `src/lib/expenses/utils.ts` | `generateId`, `parseAmount`, `parseDDMMM`, `parseDDMMMYYYY`, `inferYear`, `directionFromDelta`, `isCreditFromSuffix`, `isCreditFromParens` |
+| `src/lib/expenses/categorize.ts` | `categorize(description, userRules)` — user rules → built-in → 'Other' |
+| `src/lib/expenses/detect.ts` | `detectStatementType(filename, text)` — text signals first, filename fallback |
+| `src/lib/expenses/parsers/uob-deposit.ts` | Multi-page concat-amount format; direction from balance delta |
+| `src/lib/expenses/parsers/uob-credit.ts` | Per-card sections; GIRO PAYMENT and CR-suffix amounts → credit |
+| `src/lib/expenses/parsers/citi-credit.ts` | Space-separated and concatenated (no-space) PDF formats both handled |
+| `src/lib/expenses/parsers/ocr-utils.ts` | `pdfToImages` + `ocrImage` + `ocrPdf` via pdf2pic + tesseract.js |
+| `src/lib/expenses/parsers/hsbc-credit.ts` | OCR text; CR suffix → credit |
+| `src/lib/expenses/parsers/hsbc-composite.ts` | OCR text; savings section only |
+| `src/lib/expenses/sheets.ts` | `getExpenses`, `getExpenseIds`, `appendExpenses`, `getExpenseRules`, `upsertExpenseRule`, `updateExpenseCategory`, `updateExpenseExcluded`, `applyRuleToExisting`, `bulkUpdateExpenseCategory` |
+| `src/lib/expenses/pipeline.ts` | `importStatements(folder)` — dedup, error isolation, categorize |
+| `scripts/import-statements.ts` | CLI entry point |
+| `src/app/api/expenses/import/route.ts` | `POST /api/expenses/import` |
+| `src/app/expenses/page.tsx` | Server Component, force-dynamic |
+| `src/components/expenses/ExpensesClient.tsx` | Full UI — see below |
+| `src/components/expenses/ImportButton.tsx` | POST to import route; idle/loading/done/error with 5s reset |
+| `src/app/lib/actions.ts` | `updateExpenseCategoryAction`, `setExpenseExcludedAction`, `createExpenseRuleAction`, `bulkUpdateCategoryAction` |
+| `src/components/nav.tsx` | Expenses link after Cash |
+| `src/app/api/setup/provision/route.ts` | Expenses + ExpenseRules tabs; Expenses has 12 columns incl. `excluded` |
+
+### ExpensesClient UI features
+
+- **Separate spending / income sections** — debits in Spending, credits in Income, each with their own table and a central, large **Donut pie chart** for visual breakdown.
+- **Annual fee banner** — discreet banner grouping annual fees by account (merging GST items), showing just the card name and date for waiver tracking.
+- **Exclusion toggles** — "Hide excluded" and "Hide investment" checkboxes to refine the view and keep charts balanced. Per-row exclusion grays out rows and excludes them from totals.
+- **Create rule** — `rule` button per row opens inline form; pre-fills merchant by stripping trailing reference codes; saves to ExpenseRules and retroactively re-categorises existing 'Other' transactions.
+- **Apply to all** — on category change, if other transactions share the same description, a sub-row prompt appears directly below the changed row offering to bulk-apply.
+
+### Expenses sheet schema (columns A–L)
+
+`id | date | post_date | description | amount | direction | balance | account | category | source_file | imported_at | excluded`
+
+Column `excluded` is new (2026-05-03). Existing rows without it read as `false`. Safe to re-import — dedup by `id` prevents duplicates.
+
+### How to use
+
+**Import via CLI:**
+```bash
+npx tsx scripts/import-statements.ts '/Users/shihong/Documents/Claude/Financial Planning'
+```
+
+**Import via UI:** Visit `/expenses` → Import Statements button.
+
+**Sheet:** `1MhApHzK0fHJT6SnTacD8rrq4yyA1ZVQIHv_FckPbyhA` — tabs already provisioned. Sheet currently has ~100 rows (82 UOB + 18 Citi Apr 2026 from last import).
+
+### What remains
+
+- **Self-transfer deduplication (#4)** — transfers between own accounts are double-counted (debit on one, credit on the other). Mechanism exists: user can manually exclude both legs. Auto-detection not yet designed. Tracked in ROADMAP.md.
+
+### Key design decisions for v0.5
+
+- `pdf-parse` pinned to v1 — v2 breaks ESM default import with tsx
+- Dedup: SHA-256 of `date|description|amount|account`, first 16 hex chars; safe to re-run import
+- Categorisation: keyword rule engine only; no AI cost; user overrides in ExpenseRules sheet
+- Citi CCY CONVERSION FEE pre-categorised as 'Bank Charges' by parser; pipeline skips categorise() when category ≠ 'Other'
+- `applyRuleToExisting` only updates rows where category is currently 'Other' — preserves manually-set categories
+- `bulkUpdateCategoryAction` uses batch Sheets API write (one call for N rows)
+- HSBC image PDFs require: `brew install ghostscript graphicsmagick`
+
+---
+
 ## Current State — v0.4.1 (2026-04-20) — COMPLETE
 
 All v0.1 through v0.4.1 features are fully implemented and committed to `main`.

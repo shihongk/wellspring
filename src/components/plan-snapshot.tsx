@@ -41,7 +41,7 @@ function computeBuyRecommendations(
     if (h.totalValueSGD != null) currentValue[h.ticker] = h.totalValueSGD;
   }
 
-  let accumulated: Record<string, number> = {};
+  const accumulated: Record<string, number> = {};
   let cashLeft = cashSGD;
 
   for (let iter = 0; iter < 20; iter++) {

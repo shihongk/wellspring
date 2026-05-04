@@ -95,9 +95,21 @@ export interface ExpenseTransaction {
   category: string;
   sourceFile: string;
   excluded?: boolean;
+  oneOff?: boolean;
 }
 
 export interface ExpenseRule {
   merchant: string; // case-insensitive substring match
   category: string;
+}
+
+export interface ExpenseProjectionOverride {
+  month: string;      // YYYY-MM
+  category: string;
+  amount: number;
+}
+
+export interface InflationSettings {
+  expenseInflationRate: number;
+  incomeGrowthRate: number;
 }

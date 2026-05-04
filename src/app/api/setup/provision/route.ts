@@ -10,8 +10,9 @@ const TABS = [
   { title: 'InvestmentSchedule', headers: ['month', 'ticker', 'name', 'planned_sgd'] },
   { title: 'FxRates',            headers: ['pair', 'rate', 'fetched_at'] },
   { title: 'PortfolioHistory',   headers: ['date', 'total_value_sgd', 'fx_usdsgd', 'fx_hkdsgd', 'recorded_at'] },
-  { title: 'Expenses',     headers: ['id', 'date', 'post_date', 'description', 'amount', 'direction', 'balance', 'account', 'category', 'source_file', 'imported_at', 'excluded'] },
+  { title: 'Expenses',     headers: ['id', 'date', 'post_date', 'description', 'amount', 'direction', 'balance', 'account', 'category', 'source_file', 'imported_at', 'excluded', 'one_off'] },
   { title: 'ExpenseRules', headers: ['merchant', 'category'] },
+  { title: 'ExpenseProjections', headers: ['month', 'category', 'amount'] },
 ];
 
 export async function POST(request: Request) {

@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useMemo, useTransition } from 'react';
-import { ExpenseTransaction, ExpenseRule } from '@/types';
+import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride } from '@/types';
+import { ProjectionsTab } from './ProjectionsTab';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import {
   updateExpenseCategoryAction,
   setExpenseExcludedAction,
+  setExpenseOneOffAction,
   createExpenseRuleAction,
   bulkUpdateCategoryAction,
 } from '@/app/lib/actions';
@@ -194,16 +196,18 @@ function KPICard({ title, amount, amountColor }: { title: string; amount: number
 // ─── unified transaction row ──────────────────────────────────────────────────
 
 function TxRow({
-  tx, cat, excluded,
-  onCategory, onExclude, onRule, onApply, onApplyDismiss,
+  tx, cat, excluded, oneOff,
+  onCategory, onExclude, onOneOff, onRule, onApply, onApplyDismiss,
   ruleOpen, applyOpen,
   ruleForm, setRuleForm, handleSaveRule
 }: {
   tx: ExpenseTransaction;
   cat: string;
   excluded: boolean;
+  oneOff: boolean;
   onCategory: (v: string) => void;
   onExclude: (v: boolean) => void;
+  onOneOff: (v: boolean) => void;
   onRule: () => void;
   onApply: () => void;
   onApplyDismiss: () => void;
@@ -257,6 +261,10 @@ function TxRow({
               <input type="checkbox" checked={excluded} onChange={e => onExclude(e.target.checked)} className="rounded border-slate-300 text-slate-600 focus:ring-slate-500" />
               <span className="text-slate-600">Exclude from totals</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={oneOff} onChange={e => onOneOff(e.target.checked)} className="rounded border-slate-300 text-slate-600 focus:ring-slate-500" />
+              <span className="text-slate-600">One-off (exclude from projections)</span>
+            </label>
             <button onClick={onRule} className="text-indigo-600 font-medium ml-auto hover:text-indigo-800 transition-colors text-sm">
               Create Rule
             </button>
@@ -302,9 +310,10 @@ function TxRow({
 interface Props {
   transactions: ExpenseTransaction[];
   rules: ExpenseRule[];
+  overrides: ExpenseProjectionOverride[];
 }
 
-export function ExpensesClient({ transactions }: Props) {
+export function ExpensesClient({ transactions, overrides }: Props) {
   const months = useMemo(() => {
     const keys = [...new Set(transactions.map(t => toMonthKey(t.date)))].sort().reverse();
     return keys;
@@ -316,6 +325,7 @@ export function ExpensesClient({ transactions }: Props) {
 
   const [localCategories, setLocalCategories] = useState<Record<string, string>>({});
   const [localExcluded, setLocalExcluded]   = useState<Record<string, boolean>>({});
+  const [localOneOff, setLocalOneOff]       = useState<Record<string, boolean>>({});
   const [, startTransition] = useTransition();
 
   const [hideExcluded, setHideExcluded] = useState(true);
@@ -324,8 +334,10 @@ export function ExpensesClient({ transactions }: Props) {
   const [applyConfirm, setApplyConfirm] = useState<{ triggeredId: string; category: string; matchIds: string[] } | null>(null);
   
   const [tab, setTab] = useState<'spending' | 'income'>('spending');
+  const [mainTab, setMainTab] = useState<'transactions' | 'projections'>('transactions');
 
   const isExcluded = (tx: ExpenseTransaction) => localExcluded[tx.id] ?? tx.excluded ?? false;
+  const isOneOff   = (tx: ExpenseTransaction) => localOneOff[tx.id]   ?? tx.oneOff   ?? false;
   const catOf      = (tx: ExpenseTransaction) => localCategories[tx.id] ?? tx.category;
 
   const filtered = useMemo(() => transactions.filter(t => toMonthKey(t.date) === selectedMonth), [transactions, selectedMonth]);
@@ -423,6 +435,11 @@ export function ExpensesClient({ transactions }: Props) {
     startTransition(() => { setExpenseExcludedAction(id, v); });
   }
 
+  function handleToggleOneOff(id: string, v: boolean) {
+    setLocalOneOff(prev => ({ ...prev, [id]: v }));
+    startTransition(() => { setExpenseOneOffAction(id, v); });
+  }
+
   function handleOpenRule(tx: ExpenseTransaction) {
     if (ruleForm?.id === tx.id) { setRuleForm(null); return; }
     setApplyConfirm(null);
@@ -439,14 +456,34 @@ export function ExpensesClient({ transactions }: Props) {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Top Bar: Month + Import */}
+      {/* Top Bar: main tabs + Import */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={prevMonth} disabled={monthIdx >= months.length - 1} className="px-2 py-1 rounded text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors">&lt;</button>
-          <span className="text-base font-semibold w-28 text-center text-slate-800">{formatMonthLabel(selectedMonth)}</span>
-          <button onClick={nextMonth} disabled={monthIdx <= 0} className="px-2 py-1 rounded text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors">&gt;</button>
+        <div className="flex p-1 bg-slate-100 rounded-lg shadow-inner">
+          <button
+            onClick={() => setMainTab('transactions')}
+            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${mainTab === 'transactions' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Transactions
+          </button>
+          <button
+            onClick={() => setMainTab('projections')}
+            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${mainTab === 'projections' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Projections
+          </button>
         </div>
         <ImportButton />
+      </div>
+
+      {mainTab === 'projections' ? (
+        <ProjectionsTab transactions={transactions} overrides={overrides} />
+      ) : (
+        <>
+      {/* Month Nav */}
+      <div className="flex items-center gap-3">
+        <button onClick={prevMonth} disabled={monthIdx >= months.length - 1} className="px-2 py-1 rounded text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors">&lt;</button>
+        <span className="text-base font-semibold w-28 text-center text-slate-800">{formatMonthLabel(selectedMonth)}</span>
+        <button onClick={nextMonth} disabled={monthIdx <= 0} className="px-2 py-1 rounded text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors">&gt;</button>
       </div>
 
       {/* KPI Row */}
@@ -592,10 +629,11 @@ export function ExpensesClient({ transactions }: Props) {
                     return (
                       <TxRow
                         key={tx.id}
-                        tx={tx} cat={cat} excluded={excluded}
+                        tx={tx} cat={cat} excluded={excluded} oneOff={isOneOff(tx)}
                         ruleOpen={ruleOpen} applyOpen={applyOpen}
                         onCategory={v => handleCategoryChange(tx.id, v)}
                         onExclude={v => handleToggleExcluded(tx.id, v)}
+                        onOneOff={v => handleToggleOneOff(tx.id, v)}
                         onRule={() => handleOpenRule(tx)}
                         onApply={handleBulkApply}
                         onApplyDismiss={() => setApplyConfirm(null)}
@@ -613,6 +651,8 @@ export function ExpensesClient({ transactions }: Props) {
             )}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

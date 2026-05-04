@@ -14,10 +14,10 @@ import {
   replaceInvestmentSchedule,
   upsertHistoryEntry,
 } from '@/lib/google-sheets';
-import { updateExpenseCategory, updateExpenseExcluded, applyRuleToExisting, upsertExpenseRule, bulkUpdateExpenseCategory } from '@/lib/expenses/sheets';
+import { updateExpenseCategory, updateExpenseExcluded, updateExpenseOneOff, applyRuleToExisting, upsertExpenseRule, bulkUpdateExpenseCategory, upsertProjectionOverride, deleteProjectionOverride } from '@/lib/expenses/sheets';
 import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
-import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow } from '@/types';
+import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow, ExpenseProjectionOverride } from '@/types';
 
 export async function upsertHoldingAction(data: Holding): Promise<void> {
   await upsertHolding(data);
@@ -152,5 +152,20 @@ export async function bulkUpdateCategoryAction(ids: string[], category: string):
 export async function createExpenseRuleAction(merchant: string, category: string): Promise<void> {
   await upsertExpenseRule({ merchant, category });
   await applyRuleToExisting(merchant, category);
+  revalidatePath('/expenses');
+}
+
+export async function setExpenseOneOffAction(id: string, oneOff: boolean): Promise<void> {
+  await updateExpenseOneOff(id, oneOff);
+  revalidatePath('/expenses');
+}
+
+export async function saveProjectionOverrideAction(override: ExpenseProjectionOverride): Promise<void> {
+  await upsertProjectionOverride(override);
+  revalidatePath('/expenses');
+}
+
+export async function deleteProjectionOverrideAction(month: string, category: string): Promise<void> {
+  await deleteProjectionOverride(month, category);
   revalidatePath('/expenses');
 }

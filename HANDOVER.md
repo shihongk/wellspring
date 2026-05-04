@@ -6,6 +6,73 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.6 (complete, 2026-05-04) — PROJECTIONS
+
+### v0.6 Phase 1 — Types, Schema & Data Layer (complete)
+
+| Change | Detail |
+|---|---|
+| `src/types/index.ts` | `oneOff?: boolean` added to `ExpenseTransaction`; `ExpenseProjectionOverride`, `InflationSettings` interfaces added |
+| `src/lib/constants.ts` | `SHEET_NAMES.EXPENSE_PROJECTIONS = 'ExpenseProjections'` added |
+| `src/lib/expenses/sheets.ts` | `updateExpenseOneOff(id, oneOff)`, `getProjectionOverrides()`, `upsertProjectionOverride()`, `deleteProjectionOverride()` added; `getExpenses`/`appendExpenses` ranges extended to col M |
+| `src/app/lib/actions.ts` | `setExpenseOneOffAction`, `saveProjectionOverrideAction`, `deleteProjectionOverrideAction` added |
+| `src/app/api/setup/provision/route.ts` | `Expenses` headers updated to include `one_off`; `ExpenseProjections` tab added |
+| `src/app/api/setup/migrate-projections/route.ts` | Migration route created (adds `one_off` col + `ExpenseProjections` tab) |
+| `scripts/migrate-projections.ts` | One-off migration script — already run, `ExpenseProjections` tab exists in sheet |
+| `src/components/expenses/ExpensesClient.tsx` | One-off toggle added to expanded `TxRow` |
+
+### Expenses sheet schema (columns A–M)
+
+`id | date | post_date | description | amount | direction | balance | account | category | source_file | imported_at | excluded | one_off`
+
+Column `one_off` is col M (added v0.6). Existing rows without it read as `false`.
+
+### v0.6 Phase 2 — Core Projection Logic (complete)
+
+| File | Purpose |
+|---|---|
+| `src/lib/expenses/projections.ts` | `computeBaselineAverages`, `generateProjections`, `aggregateCashFlow` |
+| `src/lib/expenses/__tests__/projections.test.ts` | 16 tests — all passing |
+
+**`computeBaselineAverages(transactions, startMonth, endMonth)`**
+- Excludes `excluded`, `oneOff`, `Transfer`, `Investment`
+- Expense categories: sums debits; income categories: sums credits
+- Divides by total months in window (not just months with data)
+
+**`generateProjections(baselineAverages, overrides, targetMonths, inflationSettings)`**
+- Overrides replace baseline (no inflation applied to overrides)
+- Inflation compounded annually: year index relative to first target month's year
+- Income categories use `incomeGrowthRate`; expense categories use `expenseInflationRate`
+- Rates are percentages (e.g. `10` = 10%)
+
+**`aggregateCashFlow(projections, incomeCategories)`**
+- Returns `{ next3M, next6M, next12M }` — net = income − expense for first N months
+
+### v0.6 Phase 3 — UI (complete)
+
+| File | Change |
+|---|---|
+| `src/lib/expenses/projections.ts` | `INCOME_CATEGORIES` exported as `string[]` |
+| `src/app/expenses/page.tsx` | `getProjectionOverrides()` fetched and passed to client |
+| `src/components/expenses/ExpensesClient.tsx` | `overrides` prop added; top-level `Transactions / Projections` tab added; `ProjectionsTab` rendered when on projections tab |
+| `src/components/expenses/ProjectionsTab.tsx` | New component — baseline period controls, inflation settings, rolling KPI cards (3M/6M/12M), bar chart (solid actuals + faded projections, monthly ≤24 / annual >24), category matrix with inline cell editor + override save/delete |
+
+**ProjectionsTab features:**
+- Baseline period and inflation settings persisted to `localStorage`
+- Bar chart view modes: Income + Expense (stacked, green above / red below zero) | Income | Expense | Net — toggle in chart header
+- Annual view overlap fix: baseline years that overlap with projected years are dropped from actuals to avoid double bars
+- Per-category exclusion: click any category name to exclude it from chart and KPI totals; excluded rows stay visible but dimmed
+- Grouped collapsible matrix: Income section + Expenses section (sub-groups: Living / Lifestyle / Financial / Other); each section and sub-group independently collapsible with Expand All / Collapse All shortcut; Total Income, Total Expenses, and Net rows always reflect excluded-category state
+- Overrides use `saveProjectionOverrideAction` / `deleteProjectionOverrideAction` with optimistic updates
+
+**Expense sub-group mapping** (defined in `ProjectionsTab.tsx` as `EXPENSE_SUBGROUP_MAP`):
+- Living: Food & Drink, Groceries, Healthcare, Mortgage, Transport, Utilities
+- Lifestyle: Books & Stationery, Entertainment, Home Improvement, Shopping, Subscriptions, Travel
+- Financial: Bank Charges, Fees & Charges, Tax
+- Other: anything unmapped
+
+---
+
 ## Current State — v0.5 (complete, 2026-05-03) — EXPENSE TRACKER
 
 All 12 phases complete + post-launch UI/categorisation improvements. 103 tests passing.

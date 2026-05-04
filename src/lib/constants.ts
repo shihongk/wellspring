@@ -32,6 +32,7 @@ export const SHEET_NAMES = {
   PORTFOLIO_HISTORY: 'PortfolioHistory',
   EXPENSES: 'Expenses',
   EXPENSE_RULES: 'ExpenseRules',
+  EXPENSE_PROJECTIONS: 'ExpenseProjections',
 } as const;
 
 export const FALLBACK_FX_RATES = {

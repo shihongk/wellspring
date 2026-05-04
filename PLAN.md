@@ -9,7 +9,8 @@
 | v0.3 | 2026-04-16 | ✅ Complete |
 | v0.4 | 2026-04-18 | ✅ Complete |
 | v0.4.1 | 2026-04-20 | ✅ Complete |
-| v0.5 | TBD | 🔲 In progress |
+| v0.5 | 2026-05-03 | ✅ Complete |
+| v0.6 | 2026-05-04 | ✅ Complete |
 
 ---
 
@@ -858,3 +859,81 @@ Check `/tmp/wellspring-snapshot.log` and confirm a row appears in the `Portfolio
 - `scripts/backfill.ts` is a one-off utility — can be re-run if holdings change (it overwrites via upsert)
 - Timezone bug fixed in scripts: always use UTC-safe date parsing (`Date.UTC(y, m-1, d)`)
 - Yahoo Finance `historical()` is deprecated in favour of `chart()` — non-breaking for now but worth migrating eventually
+# v0.6 — Historical & Predictive Projections
+
+## Objective
+
+Dedicated "Projections" tab in the Expenses view. Forecasts future cash flow from historical averages with manual overrides, multi-year horizon, and configurable inflation.
+
+---
+
+### Key design decisions
+
+- **Baseline exclusions:** `excluded: true`, `oneOff: true`, `Transfer` category, `Investment` category all excluded from baseline.
+- **Averaging:** sum per category ÷ total months in baseline (even if category absent in some months).
+- **One-off flag:** new `oneOff` boolean on `ExpenseTransaction` (col M in sheet). Excluded from baseline, not projected forward.
+- **Inflation:** two rates — `expenseInflationRate` and `incomeGrowthRate`. Compounded annually.
+- **Projection horizon:** rolling from next full month. Multi-year: to end of current year, then full calendar years. MAX = 50 years feasible (computation is trivial).
+- **Range toggles:** 3M / 6M / 12M / 3Y / 5Y / 10Y / MAX.
+- **Chart granularity:** monthly bars ≤ 24 months; annual bars > 24 months.
+- **KPI cards:** rolling next 3M / 6M / 12M from next full month.
+- **Baseline period:** stored in `localStorage`, read in `useEffect` (avoids SSR mismatch). Default: last 3 complete months.
+- **Override deletion:** clear cell → delete.
+- **Income categories:** `Salary`, `Interest`, `Other Income`, `Income` — treated as cash inflows.
+
+---
+
+### Data model
+
+**`ExpenseTransaction`** — add `oneOff?: boolean` (column M, sheet header `one_off`).
+
+**`ExpenseProjections` sheet:**
+```
+month | category | amount
+```
+
+**`ExpenseProjectionOverride`:**
+```ts
+{ month: string; category: string; amount: number }
+```
+
+**`InflationSettings`:**
+```ts
+{ expenseInflationRate: number; incomeGrowthRate: number }
+```
+
+---
+
+### Phase 1 — Types, Schema & Data Layer ✅
+
+- [x] `oneOff` field on `ExpenseTransaction`; `ExpenseProjectionOverride` type
+- [x] `EXPENSE_PROJECTIONS` constant
+- [x] `getExpenses` / `appendExpenses` updated to col M; `updateExpenseOneOff` added
+- [x] `getProjectionOverrides`, `upsertProjectionOverride`, `deleteProjectionOverride`
+- [x] Provision route: `Expenses` headers updated; `ExpenseProjections` tab added
+- [x] `/api/setup/migrate-projections` route
+- [x] `setExpenseOneOffAction`, `saveProjectionOverrideAction`, `deleteProjectionOverrideAction`
+- [x] One-off toggle in `TxRow` (ExpensesClient)
+- [x] Migration script run — `ExpenseProjections` tab created in sheet
+
+---
+
+### Phase 2 — Core Projection Logic ✅
+
+- [x] `src/lib/expenses/projections.ts`
+  - `computeBaselineAverages(transactions, startMonth, endMonth)`
+  - `generateProjections(baselineAverages, overrides, targetMonths, inflationSettings)`
+  - `aggregateCashFlow(projections, incomeCategories)` → `{ next3M, next6M, next12M }`
+- [x] Tests — missing months, one-off/excluded exclusions, overrides, inflation, rolling sums
+
+---
+
+### Phase 3 — UI Components ✅
+
+- [x] `expenses/page.tsx` — fetch and pass `overrides`
+- [x] `ExpensesClient` — add `'projections'` tab; hide month nav + KPI row on projections tab
+- [x] `ProjectionsTab.tsx`
+  - Baseline period controls + inflation controls
+  - Rolling KPI cards (3M / 6M / 12M net cash flow)
+  - Range selector + combined bar chart (solid actuals / faded projections; monthly/annual granularity)
+  - Category matrix table with inline cell editor + override save/delete

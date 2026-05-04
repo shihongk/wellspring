@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { ExpenseTransaction, ExpenseRule } from '@/types';
+import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
 
 function getSheetsClient() {
@@ -40,6 +40,7 @@ function rowToTransaction(row: string[]): ExpenseTransaction {
     category: row[8],
     sourceFile: row[9],
     excluded: row[11] === 'true',
+    oneOff: row[12] === 'true',
   };
 }
 
@@ -57,6 +58,7 @@ function transactionToRow(tx: ExpenseTransaction): string[] {
     tx.sourceFile,
     new Date().toISOString(),
     tx.excluded ? 'true' : '',
+    tx.oneOff ? 'true' : '',
   ];
 }
 
@@ -64,7 +66,7 @@ export async function getExpenses(): Promise<ExpenseTransaction[]> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.EXPENSES}!A:L`,
+    range: `${SHEET_NAMES.EXPENSES}!A:M`,
   });
 
   const rows = res.data.values ?? [];
@@ -90,7 +92,7 @@ export async function appendExpenses(rows: ExpenseTransaction[]): Promise<void> 
   const { sheets, spreadsheetId } = getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${SHEET_NAMES.EXPENSES}!A:L`,
+    range: `${SHEET_NAMES.EXPENSES}!A:M`,
     valueInputOption: 'RAW',
     requestBody: { values: rows.map(transactionToRow) },
   });
@@ -205,6 +207,106 @@ export async function bulkUpdateExpenseCategory(ids: string[], category: string)
         range: `${SHEET_NAMES.EXPENSES}!I${rowNum}`,
         values: [[category]],
       })),
+    },
+  });
+}
+
+export async function updateExpenseOneOff(id: string, oneOff: boolean): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSES}!A:A`,
+  });
+
+  const rows = res.data.values ?? [];
+  const rowIndex = rows.findIndex((r, i) => i > 0 && r[0] === id);
+  if (rowIndex < 1) return;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSES}!M${rowIndex + 1}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[oneOff ? 'true' : '']] },
+  });
+}
+
+export async function getProjectionOverrides(): Promise<ExpenseProjectionOverride[]> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A:C`,
+  });
+
+  const rows = res.data.values ?? [];
+  if (rows.length <= 1) return [];
+  return rows.slice(1)
+    .filter(r => r[0] && r[1] && r[2])
+    .map(r => ({ month: r[0], category: r[1], amount: parseFloat(r[2]) }));
+}
+
+export async function upsertProjectionOverride(override: ExpenseProjectionOverride): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A:C`,
+  });
+
+  const rows = res.data.values ?? [];
+  const rowIndex = rows.findIndex(
+    (r, i) => i > 0 && r[0] === override.month && r[1] === override.category,
+  );
+  const rowData = [override.month, override.category, override.amount.toString()];
+
+  if (rowIndex >= 1) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A${rowIndex + 1}:C${rowIndex + 1}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [rowData] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A:C`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [rowData] },
+    });
+  }
+}
+
+export async function deleteProjectionOverride(month: string, category: string): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A:C`,
+  });
+
+  const rows = res.data.values ?? [];
+  const rowIndex = rows.findIndex(
+    (r, i) => i > 0 && r[0] === month && r[1] === category,
+  );
+  if (rowIndex < 1) return;
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheet = meta.data.sheets?.find(
+    s => s.properties?.title === SHEET_NAMES.EXPENSE_PROJECTIONS,
+  );
+  const sheetId = sheet?.properties?.sheetId;
+  if (sheetId == null) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{
+        deleteDimension: {
+          range: {
+            sheetId,
+            dimension: 'ROWS',
+            startIndex: rowIndex,
+            endIndex: rowIndex + 1,
+          },
+        },
+      }],
     },
   });
 }

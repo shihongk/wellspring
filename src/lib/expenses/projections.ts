@@ -1,4 +1,4 @@
-import type { ExpenseTransaction, ExpenseProjectionOverride, InflationSettings } from '@/types';
+import type { ExpenseTransaction, ExpenseProjectionOverride, InflationSettings, CategoryProjectionSetting } from '@/types';
 
 export const INCOME_CATEGORIES = ['Salary', 'Interest', 'Other Income', 'Income'];
 const INCOME_CATS = new Set(INCOME_CATEGORIES);
@@ -11,6 +11,7 @@ export interface ProjectionRow {
 }
 
 export interface CashFlowSummary {
+  next1M: number;
   next3M: number;
   next6M: number;
   next12M: number;
@@ -22,17 +23,29 @@ function monthsBetween(startMonth: string, endMonth: string): number {
   return (ey - sy) * 12 + (em - sm);
 }
 
+function subtractMonths(month: string, n: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 - n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 export function computeBaselineAverages(
   transactions: ExpenseTransaction[],
   startMonth: string,
   endMonth: string,
+  categoryModes: Record<string, CategoryProjectionSetting> = {},
 ): Record<string, number> {
-  const totalMonths = monthsBetween(startMonth, endMonth) + 1;
-  const sums: Record<string, number> = {};
+  const totalRollingMonths = monthsBetween(startMonth, endMonth) + 1;
+  const annualStart = subtractMonths(endMonth, 11);
+  const semiannualStart = subtractMonths(endMonth, 5);
+
+  const rollingSums: Record<string, number> = {};
+  const annualSums: Record<string, number> = {};
+  const semiannualSums: Record<string, number> = {};
+  const monthlyTotals: Record<string, Record<string, number>> = {};
 
   for (const tx of transactions) {
     const txMonth = tx.date.slice(0, 7);
-    if (txMonth < startMonth || txMonth > endMonth) continue;
     if (tx.excluded || tx.oneOff) continue;
     if (EXCLUDED_FROM_BASELINE.has(tx.category)) continue;
 
@@ -40,13 +53,54 @@ export function computeBaselineAverages(
     if (isIncome && tx.direction !== 'credit') continue;
     if (!isIncome && tx.direction !== 'debit') continue;
 
-    sums[tx.category] = (sums[tx.category] ?? 0) + tx.amount;
+    if (txMonth <= endMonth) {
+      if (!monthlyTotals[tx.category]) monthlyTotals[tx.category] = {};
+      monthlyTotals[tx.category][txMonth] = (monthlyTotals[tx.category][txMonth] ?? 0) + tx.amount;
+    }
+    if (txMonth >= startMonth && txMonth <= endMonth) {
+      rollingSums[tx.category] = (rollingSums[tx.category] ?? 0) + tx.amount;
+    }
+    if (txMonth >= annualStart && txMonth <= endMonth) {
+      annualSums[tx.category] = (annualSums[tx.category] ?? 0) + tx.amount;
+    }
+    if (txMonth >= semiannualStart && txMonth <= endMonth) {
+      semiannualSums[tx.category] = (semiannualSums[tx.category] ?? 0) + tx.amount;
+    }
   }
 
+  const allCategories = new Set([
+    ...Object.keys(rollingSums),
+    ...Object.keys(annualSums),
+    ...Object.keys(semiannualSums),
+    ...Object.keys(monthlyTotals),
+  ]);
+
   const averages: Record<string, number> = {};
-  for (const [cat, sum] of Object.entries(sums)) {
-    averages[cat] = sum / totalMonths;
+  for (const cat of allCategories) {
+    const mode = categoryModes[cat]?.mode ?? 'rolling';
+
+    if (mode === 'fixed') {
+      const amt = categoryModes[cat]?.fixedAmount;
+      if (amt !== undefined && amt > 0) averages[cat] = amt;
+      continue;
+    }
+    if (mode === 'annual') {
+      if (annualSums[cat] !== undefined) averages[cat] = annualSums[cat] / 12;
+      continue;
+    }
+    if (mode === 'semiannual') {
+      if (semiannualSums[cat] !== undefined) averages[cat] = semiannualSums[cat] / 6;
+      continue;
+    }
+    if (mode === 'latest') {
+      const months = Object.keys(monthlyTotals[cat] ?? {}).sort();
+      if (months.length > 0) averages[cat] = monthlyTotals[cat][months[months.length - 1]];
+      continue;
+    }
+    // rolling (default)
+    if (rollingSums[cat] !== undefined) averages[cat] = rollingSums[cat] / totalRollingMonths;
   }
+
   return averages;
 }
 
@@ -106,6 +160,7 @@ export function aggregateCashFlow(
   }
 
   return {
+    next1M: netForMonths(1),
     next3M: netForMonths(3),
     next6M: netForMonths(6),
     next12M: netForMonths(12),

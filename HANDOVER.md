@@ -6,6 +6,34 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Next Up — v0.7 (design complete, not started)
+
+Retirement & CPF projection feature. Full plan in `PLAN.md` (6 phases). Key deliverables:
+- `src/lib/retirement/` — CPF computation engine + projection engine
+- `CpfPanel` component embedded in the Expenses tab
+- New `/retirement` page with stacked area chart + KPI cards
+- Two new Sheet tabs: `CpfBalances`, `RetirementOneOffs`
+
+Start with Phase 1 (types + Sheet helpers + Server Actions). Tell Gemini: *"Implement `tasks/v0.7-phase1.md`. Read `HANDOVER.md` first."* (task doc not yet written — Claude writes it before handing off).
+
+---
+
+## Current State — v0.6 post-launch improvements (2026-05-05)
+
+| Change | Detail |
+|---|---|
+| Chart tooltip | Hover over any bar → floating card showing Income / Expense / Net; "proj" badge on projected bars; tooltip clamps to chart bounds |
+| Net line overlay | "both" mode only: solid cyan line for actuals, dashed for projected, filled/open dots at each point; legend updated |
+| Per-category projection modes | 5 modes: Rolling avg (default), Annual avg (last 12m ÷ 12), 6-monthly avg (last 6m ÷ 6), Latest month, Fixed amount |
+| Category Modes panel | Collapsible panel between controls and KPI cards; grid of mode cards per category; "(N custom)" badge in header; mode descriptor shown in each card; settings persisted to localStorage |
+| Mode badges in matrix | Non-rolling categories show amber pill (`12m` / `6m` / `latest` / `fixed`) next to name in projection matrix |
+| "Rolling baseline" label | Renamed from "Baseline period" to clarify it only applies to rolling-mode categories |
+| Net 1M KPI | Added as first KPI card; grid now 4 columns |
+| `computeBaselineAverages` | Now accepts `categoryModes` param; computes rolling, 12m, 6m, per-month totals in a single transaction pass |
+| New types | `ProjectionMode` and `CategoryProjectionSetting` in `src/types/index.ts` |
+
+---
+
 ## Current State — v0.6 (complete, 2026-05-04) — PROJECTIONS
 
 ### v0.6 Phase 1 — Types, Schema & Data Layer (complete)
@@ -353,9 +381,6 @@ Negative = underweight (current < target, shown in red). Positive = overweight.
 
 ---
 
-## What to Build Next (Post v0.3 Ideas)
+## What to Build Next
 
-- Vercel deployment + environment variable configuration
-- Transaction history filterable by ticker
-- Support for additional tickers
-- Unit/property tests for pure functions in `portfolio.ts`
+See ROADMAP.md for the full backlog. Active work tracked in PLAN.md.

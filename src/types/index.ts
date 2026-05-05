@@ -113,3 +113,10 @@ export interface InflationSettings {
   expenseInflationRate: number;
   incomeGrowthRate: number;
 }
+
+export type ProjectionMode = 'rolling' | 'annual' | 'semiannual' | 'latest' | 'fixed';
+
+export interface CategoryProjectionSetting {
+  mode: ProjectionMode;
+  fixedAmount?: number;
+}

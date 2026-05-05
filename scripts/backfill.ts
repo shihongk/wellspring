@@ -52,15 +52,15 @@ function getWeekdays(from: string, to: string): string[] {
 async function fetchHistory(symbol: string, from: string, to: string): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   try {
-    // period2 needs to be one day ahead to include the to date
-    const rows = await yf.historical(symbol, {
+    const res = await yf.chart(symbol, {
       period1: from,
       period2: addDays(to, 1),
       interval: '1d',
     });
-    for (const row of rows) {
-      const dateStr = row.date.toISOString().slice(0, 10);
-      if (row.close != null) map.set(dateStr, row.close);
+    for (const q of res.quotes) {
+      if (q.close != null) {
+        map.set(new Date(q.date).toISOString().slice(0, 10), q.close);
+      }
     }
   } catch (err) {
     console.warn(`  [warn] Could not fetch history for ${symbol}:`, err instanceof Error ? err.message : String(err));

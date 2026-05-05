@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useState, useEffect, useMemo, useTransition } from 'react';
-import { ExpenseTransaction, ExpenseProjectionOverride, InflationSettings } from '@/types';
+import { Fragment, useState, useEffect, useMemo, useTransition, useRef } from 'react';
+import { ExpenseTransaction, ExpenseProjectionOverride, InflationSettings, CategoryProjectionSetting, ProjectionMode } from '@/types';
 import {
   computeBaselineAverages,
   generateProjections,
@@ -118,6 +118,69 @@ function incomeExpenseFromRows(rows: ProjectionRow[]): { income: number; expense
   return { income, expense };
 }
 
+// ─── Category Mode Card ───────────────────────────────────────────────────────
+
+const MODE_LABELS: Record<ProjectionMode, string> = {
+  rolling: 'Rolling avg',
+  annual: 'Annual avg',
+  semiannual: '6-monthly avg',
+  latest: 'Latest month',
+  fixed: 'Fixed amount',
+};
+
+const MODE_BADGE: Record<ProjectionMode, string> = {
+  rolling: '',
+  annual: '12m',
+  semiannual: '6m',
+  latest: 'latest',
+  fixed: 'fixed',
+};
+
+interface CategoryModeCardProps {
+  category: string;
+  setting: CategoryProjectionSetting;
+  onChange: (s: CategoryProjectionSetting) => void;
+  baselineStart: string;
+  baselineEnd: string;
+  latestMonth: string | undefined;
+}
+
+function CategoryModeCard({ category, setting, onChange, baselineStart, baselineEnd, latestMonth }: CategoryModeCardProps) {
+  const mode = setting.mode;
+  const isCustom = mode !== 'rolling';
+
+  let descriptor = '';
+  if (mode === 'rolling') descriptor = `${fmtMonthShort(baselineStart)}–${fmtMonthShort(baselineEnd)} avg`;
+  else if (mode === 'annual') descriptor = 'Last 12m ÷ 12';
+  else if (mode === 'semiannual') descriptor = 'Last 6m ÷ 6';
+  else if (mode === 'latest') descriptor = latestMonth ? `${fmtMonthShort(latestMonth)} value` : 'No data';
+  else if (mode === 'fixed') descriptor = 'Manual monthly amount';
+
+  return (
+    <div className={`rounded-lg border p-3 transition-colors ${isCustom ? 'border-amber-200 bg-amber-50/40' : 'border-slate-100 bg-white'}`}>
+      <div className="text-xs font-medium text-slate-700 mb-2 truncate" title={category}>{category}</div>
+      <select
+        value={mode}
+        onChange={e => onChange({ ...setting, mode: e.target.value as ProjectionMode })}
+        className="w-full text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-500 bg-white"
+      >
+        {(Object.keys(MODE_LABELS) as ProjectionMode[]).map(m => (
+          <option key={m} value={m}>{MODE_LABELS[m]}</option>
+        ))}
+      </select>
+      {mode === 'fixed' && (
+        <input
+          type="number" min="0" step="1" placeholder="Monthly S$"
+          value={setting.fixedAmount ?? ''}
+          onChange={e => onChange({ mode: 'fixed', fixedAmount: parseFloat(e.target.value) || 0 })}
+          className="mt-2 w-full text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        />
+      )}
+      <div className="mt-1.5 text-[10px] text-slate-400">{descriptor}</div>
+    </div>
+  );
+}
+
 // ─── Bar Chart ────────────────────────────────────────────────────────────────
 
 interface ChartBar {
@@ -134,6 +197,9 @@ const PW = CW - PL - PR;
 const PH = CH - PT - PB;
 
 function BarChart({ bars, viewMode }: { bars: ChartBar[]; viewMode: ViewMode }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ bar: ChartBar; x: number; y: number } | null>(null);
+
   if (bars.length === 0) {
     return <div className="flex items-center justify-center h-40 text-slate-400 text-sm">No data to display.</div>;
   }
@@ -160,82 +226,165 @@ function BarChart({ bars, viewMode }: { bars: ChartBar[]; viewMode: ViewMode }) 
   const barW = Math.max(barSlot * 0.65, 2);
   const labelStep = Math.max(1, Math.ceil(bars.length / 8));
 
+  function handleBarHover(bar: ChartBar, e: React.MouseEvent) {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTooltip({ bar, x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }
+  function handleBarMove(bar: ChartBar, e: React.MouseEvent) {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTooltip(prev => prev ? { ...prev, bar, x: e.clientX - rect.left, y: e.clientY - rect.top } : null);
+  }
+
+  // Net line points for 'both' mode
+  const netLinePoints = viewMode === 'both'
+    ? bars.map((bar, i) => `${PL + barSlot * i + barSlot / 2},${toY(bar.net)}`).join(' ')
+    : null;
+  const firstProjectedIdx = bars.findIndex(b => !b.isActual);
+  const splitIdx = firstProjectedIdx >= 0 ? firstProjectedIdx : bars.length;
+
   return (
-    <svg viewBox={`0 0 ${CW} ${CH}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-      {gridValues.map((v, i) => {
-        const y = toY(v);
-        return (
-          <g key={i}>
-            <line x1={PL} y1={y} x2={PL + PW} y2={y}
-              stroke={Math.abs(v) < 0.01 ? '#64748b' : '#e2e8f0'}
-              strokeWidth={Math.abs(v) < 0.01 ? 1 : 0.5}
-              strokeDasharray={Math.abs(v) < 0.01 ? '' : '4,4'} />
-            <text x={PL - 6} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#94a3b8">
-              {fmtYLabel(v)}
-            </text>
-          </g>
-        );
-      })}
+    <div ref={wrapperRef} className="relative">
+      <svg viewBox={`0 0 ${CW} ${CH}`} className="w-full" preserveAspectRatio="xMidYMid meet"
+        onMouseLeave={() => setTooltip(null)}>
+        {gridValues.map((v, i) => {
+          const y = toY(v);
+          return (
+            <g key={i}>
+              <line x1={PL} y1={y} x2={PL + PW} y2={y}
+                stroke={Math.abs(v) < 0.01 ? '#64748b' : '#e2e8f0'}
+                strokeWidth={Math.abs(v) < 0.01 ? 1 : 0.5}
+                strokeDasharray={Math.abs(v) < 0.01 ? '' : '4,4'} />
+              <text x={PL - 6} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#94a3b8">
+                {fmtYLabel(v)}
+              </text>
+            </g>
+          );
+        })}
 
-      {bars.map((bar, i) => {
-        const x = PL + barSlot * i + (barSlot - barW) / 2;
-        const alpha = bar.isActual ? 1 : 0.4;
+        {bars.map((bar, i) => {
+          const x = PL + barSlot * i + (barSlot - barW) / 2;
+          const alpha = bar.isActual ? 1 : 0.4;
 
-        if (viewMode === 'net') {
-          const isPos = bar.net >= 0;
-          const bh = Math.max(Math.abs((bar.net / yRange) * PH), 1);
-          return <rect key={bar.key} x={x} y={isPos ? zeroY - bh : zeroY} width={barW} height={bh}
-            fill={isPos ? '#16a34a' : '#dc2626'} opacity={alpha} rx="1" />;
-        }
-        if (viewMode === 'income') {
-          const bh = Math.max((bar.income / yRange) * PH, bar.income > 0 ? 1 : 0);
-          return <rect key={bar.key} x={x} y={zeroY - bh} width={barW} height={bh}
-            fill="#16a34a" opacity={alpha} rx="1" />;
-        }
-        if (viewMode === 'expense') {
-          const bh = Math.max((bar.expense / yRange) * PH, bar.expense > 0 ? 1 : 0);
-          return <rect key={bar.key} x={x} y={zeroY} width={barW} height={bh}
-            fill="#dc2626" opacity={alpha} rx="1" />;
-        }
-        // 'both'
-        const incomeH = Math.max((bar.income / yRange) * PH, bar.income > 0 ? 1 : 0);
-        const expenseH = Math.max((bar.expense / yRange) * PH, bar.expense > 0 ? 1 : 0);
-        return (
-          <g key={bar.key}>
-            {bar.income > 0 && <rect x={x} y={zeroY - incomeH} width={barW} height={incomeH} fill="#16a34a" opacity={alpha} rx="1" />}
-            {bar.expense > 0 && <rect x={x} y={zeroY} width={barW} height={expenseH} fill="#dc2626" opacity={alpha} rx="1" />}
-          </g>
-        );
-      })}
+          if (viewMode === 'net') {
+            const isPos = bar.net >= 0;
+            const bh = Math.max(Math.abs((bar.net / yRange) * PH), 1);
+            return <rect key={bar.key} x={x} y={isPos ? zeroY - bh : zeroY} width={barW} height={bh}
+              fill={isPos ? '#16a34a' : '#dc2626'} opacity={alpha} rx="1" />;
+          }
+          if (viewMode === 'income') {
+            const bh = Math.max((bar.income / yRange) * PH, bar.income > 0 ? 1 : 0);
+            return <rect key={bar.key} x={x} y={zeroY - bh} width={barW} height={bh}
+              fill="#16a34a" opacity={alpha} rx="1" />;
+          }
+          if (viewMode === 'expense') {
+            const bh = Math.max((bar.expense / yRange) * PH, bar.expense > 0 ? 1 : 0);
+            return <rect key={bar.key} x={x} y={zeroY} width={barW} height={bh}
+              fill="#dc2626" opacity={alpha} rx="1" />;
+          }
+          // 'both'
+          const incomeH = Math.max((bar.income / yRange) * PH, bar.income > 0 ? 1 : 0);
+          const expenseH = Math.max((bar.expense / yRange) * PH, bar.expense > 0 ? 1 : 0);
+          return (
+            <g key={bar.key}>
+              {bar.income > 0 && <rect x={x} y={zeroY - incomeH} width={barW} height={incomeH} fill="#16a34a" opacity={alpha} rx="1" />}
+              {bar.expense > 0 && <rect x={x} y={zeroY} width={barW} height={expenseH} fill="#dc2626" opacity={alpha} rx="1" />}
+            </g>
+          );
+        })}
 
-      {bars.map((bar, i) => {
-        if (i % labelStep !== 0) return null;
-        return (
-          <text key={bar.key} x={PL + barSlot * i + barSlot / 2} y={CH - PB + 14}
-            textAnchor="middle" fontSize="9" fill="#94a3b8">{bar.label}</text>
-        );
-      })}
+        {/* Net line (both mode only): solid for actuals, dashed for projected */}
+        {netLinePoints && bars.length > 1 && (() => {
+          const actualPts = bars.slice(0, splitIdx + 1).map((b, i) => `${PL + barSlot * i + barSlot / 2},${toY(b.net)}`).join(' ');
+          const projPts = splitIdx < bars.length
+            ? bars.slice(splitIdx).map((b, i) => `${PL + barSlot * (splitIdx + i) + barSlot / 2},${toY(b.net)}`).join(' ')
+            : '';
+          return (
+            <g>
+              {splitIdx > 0 && <polyline points={actualPts} fill="none" stroke="#0e7490" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />}
+              {projPts && <polyline points={projPts} fill="none" stroke="#0e7490" strokeWidth="1.5" strokeDasharray="4,3" strokeLinejoin="round" strokeLinecap="round" opacity="0.6" />}
+              {bars.map((bar, i) => (
+                <circle key={`dot-${bar.key}`} cx={PL + barSlot * i + barSlot / 2} cy={toY(bar.net)} r={2.5}
+                  fill={bar.isActual ? '#0e7490' : 'white'} stroke="#0e7490" strokeWidth="1.5" opacity={bar.isActual ? 0.85 : 0.7} />
+              ))}
+            </g>
+          );
+        })()}
 
-      <g transform={`translate(${PL + PW - 220}, ${PT})`}>
-        {viewMode === 'both' ? (
-          <>
-            <rect x={0} y={0} width={10} height={10} fill="#16a34a" rx="1" />
-            <text x={14} y={9} fontSize="9" fill="#64748b">Income</text>
-            <rect x={60} y={0} width={10} height={10} fill="#dc2626" rx="1" />
-            <text x={74} y={9} fontSize="9" fill="#64748b">Expense</text>
-            <rect x={130} y={0} width={10} height={10} fill="#94a3b8" opacity={0.4} rx="1" />
-            <text x={144} y={9} fontSize="9" fill="#64748b">Projected</text>
-          </>
-        ) : (
-          <>
-            <rect x={0} y={0} width={10} height={10} fill={viewMode === 'expense' ? '#dc2626' : '#16a34a'} rx="1" />
-            <text x={14} y={9} fontSize="9" fill="#64748b">Actual</text>
-            <rect x={55} y={0} width={10} height={10} fill={viewMode === 'expense' ? '#dc2626' : '#16a34a'} opacity={0.4} rx="1" />
-            <text x={69} y={9} fontSize="9" fill="#64748b">Projected</text>
-          </>
-        )}
-      </g>
-    </svg>
+        {bars.map((bar, i) => {
+          if (i % labelStep !== 0) return null;
+          return (
+            <text key={bar.key} x={PL + barSlot * i + barSlot / 2} y={CH - PB + 14}
+              textAnchor="middle" fontSize="9" fill="#94a3b8">{bar.label}</text>
+          );
+        })}
+
+        {/* Invisible hover overlay rects */}
+        {bars.map((bar, i) => (
+          <rect key={`ov-${bar.key}`}
+            x={PL + barSlot * i} y={PT} width={barSlot} height={PH}
+            fill="transparent"
+            onMouseEnter={e => handleBarHover(bar, e)}
+            onMouseMove={e => handleBarMove(bar, e)}
+            onMouseLeave={() => setTooltip(null)}
+          />
+        ))}
+
+        <g transform={`translate(${CW / 2 - (viewMode === 'both' ? 130 : 60)}, ${CH - PB + 28})`}>
+          {viewMode === 'both' ? (
+            <>
+              <rect x={0} y={0} width={10} height={10} fill="#16a34a" rx="1" />
+              <text x={14} y={9} fontSize="9" fill="#64748b">Income</text>
+              <rect x={60} y={0} width={10} height={10} fill="#dc2626" rx="1" />
+              <text x={74} y={9} fontSize="9" fill="#64748b">Expense</text>
+              <rect x={130} y={0} width={10} height={10} fill="#94a3b8" opacity={0.4} rx="1" />
+              <text x={144} y={9} fontSize="9" fill="#64748b">Projected</text>
+              <line x1={195} y1={5} x2={215} y2={5} stroke="#0e7490" strokeWidth="1.5" opacity="0.85" />
+              <circle cx={205} cy={5} r={2.5} fill="#0e7490" opacity="0.85" />
+              <text x={219} y={9} fontSize="9" fill="#64748b">Net</text>
+            </>
+          ) : (
+            <>
+              <rect x={0} y={0} width={10} height={10} fill={viewMode === 'expense' ? '#dc2626' : '#16a34a'} rx="1" />
+              <text x={14} y={9} fontSize="9" fill="#64748b">Actual</text>
+              <rect x={55} y={0} width={10} height={10} fill={viewMode === 'expense' ? '#dc2626' : '#16a34a'} opacity={0.4} rx="1" />
+              <text x={69} y={9} fontSize="9" fill="#64748b">Projected</text>
+            </>
+          )}
+        </g>
+      </svg>
+
+      {/* Hover tooltip */}
+      {tooltip && (
+        <div
+          style={{
+            left: Math.min(tooltip.x + 14, (wrapperRef.current?.offsetWidth ?? 999) - 160),
+            top: Math.max(tooltip.y - 80, 4),
+          }}
+          className="absolute z-10 pointer-events-none bg-white border border-slate-200 rounded-xl shadow-lg px-3.5 py-2.5 text-xs min-w-[150px]"
+        >
+          <div className="font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
+            {tooltip.bar.label}
+            {!tooltip.bar.isActual && <span className="text-[9px] font-normal text-slate-400 bg-slate-100 px-1.5 rounded">proj</span>}
+          </div>
+          <div className="flex justify-between gap-6 mb-0.5">
+            <span className="text-slate-400">Income</span>
+            <span className="text-emerald-600 font-medium tabular-nums">{fmtSGD(tooltip.bar.income)}</span>
+          </div>
+          <div className="flex justify-between gap-6 mb-0.5">
+            <span className="text-slate-400">Expense</span>
+            <span className="text-red-500 font-medium tabular-nums">{fmtSGD(tooltip.bar.expense)}</span>
+          </div>
+          <div className="flex justify-between gap-6 pt-1.5 mt-1 border-t border-slate-100">
+            <span className="text-slate-500 font-medium">Net</span>
+            <span className={`font-semibold tabular-nums ${tooltip.bar.net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {tooltip.bar.net < 0 ? '-' : '+'}{fmtSGD(tooltip.bar.net)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -251,6 +400,8 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
   const [baselineStart, setBaselineStart] = useState('');
   const [baselineEnd, setBaselineEnd] = useState('');
   const [inflation, setInflation] = useState<InflationSettings>({ expenseInflationRate: 2, incomeGrowthRate: 3 });
+  const [categoryModes, setCategoryModes] = useState<Record<string, CategoryProjectionSetting>>({});
+  const [modesExpanded, setModesExpanded] = useState(false);
   const [range, setRange] = useState<Range>('12M');
   const [viewMode, setViewMode] = useState<ViewMode>('both');
   const [localOverrides, setLocalOverrides] = useState<ExpenseProjectionOverride[]>(initialOverrides);
@@ -268,6 +419,7 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
         setBaselineStart(p.baselineStart ?? defaults.start);
         setBaselineEnd(p.baselineEnd ?? defaults.end);
         if (p.inflation) setInflation(p.inflation);
+        if (p.categoryModes) setCategoryModes(p.categoryModes);
       } else {
         setBaselineStart(defaults.start);
         setBaselineEnd(defaults.end);
@@ -282,14 +434,39 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
   useEffect(() => {
     if (!isMounted) return;
     try {
-      localStorage.setItem('wellspring_projection_settings', JSON.stringify({ baselineStart, baselineEnd, inflation }));
+      localStorage.setItem('wellspring_projection_settings', JSON.stringify({ baselineStart, baselineEnd, inflation, categoryModes }));
     } catch {}
-  }, [isMounted, baselineStart, baselineEnd, inflation]);
+  }, [isMounted, baselineStart, baselineEnd, inflation, categoryModes]);
 
   const baselineAverages = useMemo(() => {
     if (!baselineStart || !baselineEnd || baselineStart > baselineEnd) return {};
-    return computeBaselineAverages(transactions, baselineStart, baselineEnd);
-  }, [transactions, baselineStart, baselineEnd]);
+    return computeBaselineAverages(transactions, baselineStart, baselineEnd, categoryModes);
+  }, [transactions, baselineStart, baselineEnd, categoryModes]);
+
+  const allKnownCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const tx of transactions) {
+      if (!EXCLUDED_CATS.has(tx.category)) cats.add(tx.category);
+    }
+    return [...cats].sort();
+  }, [transactions]);
+
+  const latestMonthPerCategory = useMemo(() => {
+    const result: Record<string, string> = {};
+    for (const tx of transactions) {
+      if (tx.excluded || tx.oneOff) continue;
+      if (EXCLUDED_CATS.has(tx.category)) continue;
+      const m = tx.date.slice(0, 7);
+      if (baselineEnd && m > baselineEnd) continue;
+      if (!result[tx.category] || m > result[tx.category]) result[tx.category] = m;
+    }
+    return result;
+  }, [transactions, baselineEnd]);
+
+  const customModeCount = useMemo(
+    () => Object.values(categoryModes).filter(s => s.mode !== 'rolling').length,
+    [categoryModes],
+  );
 
   const targetMonths = useMemo(() => makeTargetMonths(range), [range]);
 
@@ -471,18 +648,24 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
   // Category row renderer (shared)
   const renderCategoryRow = (category: string, indent: string, isIncome: boolean) => {
     const isExcluded = excludedCategories.has(category);
+    const modeBadge = MODE_BADGE[categoryModes[category]?.mode ?? 'rolling'];
     return (
       <tr key={category} className={`border-b border-slate-50 ${isExcluded ? 'opacity-40' : 'hover:bg-slate-50/50'}`}>
         <td className={`py-1.5 sticky left-0 bg-white ${indent}`}>
-          <button
-            onClick={() => toggleCategory(category)}
-            title={isExcluded ? 'Include in projections' : 'Exclude from projections'}
-            className={`text-left font-medium transition-colors hover:text-cyan-600 ${
-              isExcluded ? 'text-slate-300 line-through' : 'text-slate-600'
-            }`}
-          >
-            {category}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => toggleCategory(category)}
+              title={isExcluded ? 'Include in projections' : 'Exclude from projections'}
+              className={`text-left font-medium transition-colors hover:text-cyan-600 ${
+                isExcluded ? 'text-slate-300 line-through' : 'text-slate-600'
+              }`}
+            >
+              {category}
+            </button>
+            {modeBadge && (
+              <span className="text-[9px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-medium leading-none">{modeBadge}</span>
+            )}
+          </div>
         </td>
         {matrixMonths.map(month => (
           <td key={month} className="px-2 py-1 text-right">
@@ -506,7 +689,7 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
         <div className="flex flex-wrap gap-6 items-center">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-slate-600 shrink-0">Baseline period</span>
+            <span className="text-sm font-medium text-slate-600 shrink-0">Rolling baseline</span>
             <input type="month" value={baselineStart} onChange={e => setBaselineStart(e.target.value)}
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <span className="text-slate-400 text-sm">to</span>
@@ -533,9 +716,50 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
         )}
       </div>
 
+      {/* Category Projection Modes */}
+      <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+        <button
+          onClick={() => setModesExpanded(prev => !prev)}
+          className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-slate-700">Category Projection Modes</span>
+            {customModeCount > 0 && (
+              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                {customModeCount} custom
+              </span>
+            )}
+          </div>
+          <span className="text-slate-400 text-xs select-none">{modesExpanded ? '▲' : '▼'}</span>
+        </button>
+        {modesExpanded && (
+          <div className="px-5 pb-5 border-t border-slate-50">
+            <p className="text-xs text-slate-400 mt-3 mb-4">
+              <span className="font-medium text-slate-500">Rolling baseline:</span>{' '}
+              {baselineStart && baselineEnd ? `${fmtMonthShort(baselineStart)} – ${fmtMonthShort(baselineEnd)}` : 'not set'}
+              {' · '}Applies only to categories set to &ldquo;Rolling avg&rdquo;.
+            </p>
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+              {allKnownCategories.map(cat => (
+                <CategoryModeCard
+                  key={cat}
+                  category={cat}
+                  setting={categoryModes[cat] ?? { mode: 'rolling' }}
+                  onChange={s => setCategoryModes(prev => ({ ...prev, [cat]: s }))}
+                  baselineStart={baselineStart}
+                  baselineEnd={baselineEnd}
+                  latestMonth={latestMonthPerCategory[cat]}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {([
+          { label: 'Net 1M', value: cashFlow.next1M },
           { label: 'Net 3M', value: cashFlow.next3M },
           { label: 'Net 6M', value: cashFlow.next6M },
           { label: 'Net 12M', value: cashFlow.next12M },

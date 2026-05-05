@@ -12,6 +12,7 @@
 | `ROADMAP.md` | Idea backlog — features not yet designed | When a new feature comes up |
 | `PLAN.md` | Versioned implementation plans with checklists | During active feature work |
 | `MEMORY.md` | User's standing instructions (this file's sibling) | Auto-loaded every session |
+| `cpf-retirement-KB.md` | CPF strategy preferences — BRS target, property pledge, withdrawal logic | Before designing any CPF or retirement projection feature |
 
 Do not deviate from SPEC.md without being explicitly asked.
 
@@ -21,8 +22,34 @@ Do not deviate from SPEC.md without being explicitly asked.
 
 1. **Before touching a feature** — check HANDOVER.md to understand what already exists.
 2. **New feature request** — check ROADMAP.md to see if it's tracked; confirm approach before writing code.
-3. **After shipping** — update HANDOVER.md (current state) and CLAUDE.md (if any convention changed).
+3. **After shipping** — update HANDOVER.md (current state) and CLAUDE.md (if any convention changed). If a convention changed, update GEMINI.md too — it mirrors the technical rules for Gemini Code Assist.
 4. **Idea, not ready to build** — add it to ROADMAP.md backlog, not PLAN.md.
+5. **Task documents** — phase-level implementation specs for external agents live in `tasks/`. Keep them in sync if conventions change.
+
+---
+
+## Claude → Gemini → Claude workflow
+
+**Claude designs. Gemini implements.**
+
+| Role | Responsibility |
+|---|---|
+| **Claude** | Feature design, data model, PLAN.md, task specs in `tasks/` |
+| **Gemini** | Phase-by-phase implementation following task specs |
+
+### Handing off to Gemini
+
+1. Produce a versioned plan in `PLAN.md` and a self-contained task doc in `tasks/<phase>.md`.
+2. Task docs must be fully self-contained — no implicit context. Include: exact files to create/edit, TypeScript interfaces, Sheets schema, API contract, acceptance criteria.
+3. Tell Gemini: *"Implement `tasks/<phase>.md`. Read `HANDOVER.md` first."*
+
+### Gemini hands back to Claude
+
+Gemini updates `HANDOVER.md` after each phase — adding a "Current State" section at the top. That is the handover signal.
+
+### Resuming after Gemini
+
+Open a new Claude session and say: *"Read HANDOVER.md — Gemini just finished vX.Y. Next task is …"*
 
 ---
 

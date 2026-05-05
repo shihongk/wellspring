@@ -32,6 +32,6 @@ Instructions I give once and expect applied automatically. Edit this file betwee
 
 ## Project-specific
 
-- **Current Focus:** v0.6 complete (2026-05-04). Post-launch improvements also shipped: bar chart view modes (Income+Expense stacked / Income / Expense / Net), annual chart overlap fix, per-category exclusion toggle, grouped collapsible matrix (Income / Expenses with Living·Lifestyle·Financial·Other sub-groups, Total and Net rows). No active feature in progress — check ROADMAP.md for next.
+- **Current Focus:** v0.7 retirement projection feature — in design. Next: CPF panel in expenses tab + new `/retirement` nav page. See ROADMAP.md and cpf-retirement-KB.md.
 - **Annual Fees:** When displaying annual fees, group them by card/account to deduplicate GST items. Omit the specific amount and description; only show the card name and date to track waivers.
 - **Expense Charts:** Keep the "Hide investment" filter alongside "Hide excluded" so the Investment category doesn't skew the visual overview.

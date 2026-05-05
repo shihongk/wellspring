@@ -11,6 +11,370 @@
 | v0.4.1 | 2026-04-20 | ✅ Complete |
 | v0.5 | 2026-05-03 | ✅ Complete |
 | v0.6 | 2026-05-04 | ✅ Complete |
+| v0.7 | 2026-05-05 | 🔄 In progress |
+
+---
+
+---
+
+## v0.7 — Retirement & CPF Projection
+
+### Objective
+
+New `/retirement` nav page projecting long-term net worth (investments + CPF + cash) for retirement planning. CPF balance panel added to the expenses tab as a companion widget. Strategy preferences (BRS target, per-ticker returns, one-off expenses) encoded per `cpf-retirement-KB.md`.
+
+---
+
+### Key design decisions
+
+- **CPF strategy:** Target BRS at 55, not FRS/ERS. Excess above BRS withdrawn and reinvested proportionally into existing holdings.
+- **Net monthly surplus** (income − expenses − employee CPF): auto-reinvested proportionally into existing holdings by current ticker weight.
+- **Investment returns:** per-ticker assumption (5 tickers). Set by user in UI, persisted to `localStorage`.
+- **CPF computation:** derived from law — contribution rates, allocation, interest, SA→RA at 55, CPF LIFE from RA at 65.
+- **CPF LIFE payout model:** BRS-scaled — `monthly = (RA_at_65 / projectedBRS_at_65) × basePayout`. Deferral to 70 adds +7%/yr.
+- **Retirement sums growth:** BRS/FRS/ERS grow ~3.5%/yr from 2026 base.
+- **User DOB:** June 1984 → age 55 in 2039, age 65 in 2049. Pre-filled in UI.
+- **CPF balances source:** `CpfBalances` Sheet tab, seeded from yearly statement upload (manual data entry for now).
+- **One-off expenses:** stored in `RetirementOneOffs` Sheet tab; reduce investable cash in that calendar year.
+
+---
+
+### CPF rules to encode (from 1 Jan 2026)
+
+**Contribution rates (total = employee + employer, applied to gross monthly wage):**
+
+| Age | Employer | Employee | Total |
+|---|---|---|---|
+| ≤55 | 17% | 20% | 37% |
+| 55–60 | 16% | 18% | 34% |
+| 60–65 | 12.5% | 12.5% | 25% |
+| 65–70 | 9% | 7.5% | 16.5% |
+| >70 | 7.5% | 5% | 12.5% |
+
+**Allocation rates (% of gross wage going to each account):**
+
+| Age | OA | SA | MA |
+|---|---|---|---|
+| ≤35 | 23% | 6% | 8% |
+| 35–45 | 21% | 7% | 9% |
+| 45–50 | 19% | 8% | 10% |
+| 50–55 | 15% | 11.5% | 10.5% |
+| 55–60 | 12% | 0% → RA | 10.5% (11.5% total→RA/OA split per CPF rules) |
+| 60–65 | 3.5% | 0% → RA | 10.5% |
+| >65 | 1% | 0% | 10.5% |
+
+Note: From age 55, SA is closed; contributions route to RA (up to FRS) then OA.
+
+**Interest rates:** OA 2.5% p.a. | SA 4% | MA 4% | RA 4%
+Extra 1% on first $60k combined (capped at $20k from OA).
+
+**Retirement sums (2026 base, growing 3.5%/yr):**
+BRS $110,200 | FRS $220,400 | ERS $440,800
+
+**CPF LIFE payout (Standard Plan, BRS cohort):**
+`monthly_payout = (RA_balance_at_payout_age / projected_BRS_at_payout_age) × $950`
+Deferral past 65: +7% per year, max age 70.
+
+---
+
+### New types (`src/types/index.ts`)
+
+```ts
+export interface CpfBalance {
+  date: string;          // YYYY-MM-DD (as of date)
+  oa: number;
+  sa: number;
+  ma: number;
+}
+
+export interface RetirementOneOff {
+  id: string;
+  year: number;
+  description: string;
+  amountSGD: number;
+}
+
+export interface CpfProjectionYear {
+  year: number;
+  age: number;
+  oa: number;
+  sa: number;           // 0 after age 55
+  ma: number;
+  ra: number;           // created at 55
+  totalCpf: number;
+  monthlyContribEmployee: number;
+  monthlyContribEmployer: number;
+  cpfLifeMonthlyPayout: number | null;   // non-null from payout start age
+}
+
+export interface RetirementProjectionYear {
+  year: number;
+  age: number;
+  investments: number;       // total portfolio value SGD
+  cpf: CpfProjectionYear;
+  cashReserve: number;
+  netWorth: number;
+  netMonthlyCashFlow: number;
+  oneOffExpenses: number;    // total one-offs in this year
+}
+
+export interface RetirementSettings {
+  dob: string;               // 'YYYY-MM' — June 1984 → '1984-06'
+  retirementAge: number;     // default 65
+  payoutStartAge: number;    // default 65, max 70
+  tickerReturns: Record<string, number>;  // ticker → annual % e.g. { 'BRK-B': 8 }
+  grossMonthlySalaryOverride: number | null;  // null = derived from expense projections
+}
+```
+
+---
+
+### New Sheet tabs
+
+| Tab | Columns |
+|---|---|
+| `CpfBalances` | `date \| oa \| sa \| ma` |
+| `RetirementOneOffs` | `id \| year \| description \| amount_sgd` |
+
+---
+
+### Phase 1 — Types, Schema & Data Layer ⬜ **[START HERE]**
+
+**Priority: 1 (foundation for all phases)**
+
+#### Tasks
+
+**1.1** Add types to `src/types/index.ts`: `CpfBalance`, `RetirementOneOff`, `CpfProjectionYear`, `RetirementProjectionYear`, `RetirementSettings`.
+
+**1.2** Add constants to `src/lib/constants.ts`:
+- `SHEET_NAMES.CPF_BALANCES = 'CpfBalances'`
+- `SHEET_NAMES.RETIREMENT_ONE_OFFS = 'RetirementOneOffs'`
+- `CPF_CONTRIBUTION_RATES` — array of `{ maxAge, employer, employee, total }` entries (5 brackets from law table above)
+- `CPF_ALLOCATION_RATES` — array of `{ maxAge, oa, sa, ma }` entries
+- `CPF_INTEREST = { oa: 0.025, sa: 0.04, ma: 0.04, ra: 0.04, extraOnFirst60k: 0.01 }`
+- `CPF_RETIREMENT_SUMS_2026 = { brs: 110200, frs: 220400, ers: 440800, growthRate: 0.035 }`
+- `CPF_LIFE_BASE_BRS_MONTHLY = 950` — estimated monthly payout at 2026 BRS
+- `CPF_LIFE_DEFERRAL_BONUS = 0.07` — 7% per year deferred past 65
+
+**1.3** Add Sheet helpers to a new file `src/lib/retirement/sheets.ts`:
+- `getCpfBalances(): Promise<CpfBalance[]>` — all rows, ascending by date
+- `getLatestCpfBalance(): Promise<CpfBalance | null>`
+- `upsertCpfBalance(balance: CpfBalance): Promise<void>` — keyed on date
+- `getRetirementOneOffs(): Promise<RetirementOneOff[]>`
+- `upsertRetirementOneOff(item: RetirementOneOff): Promise<void>`
+- `deleteRetirementOneOff(id: string): Promise<void>`
+
+**1.4** Add Server Actions to `src/app/lib/actions.ts`:
+- `saveCpfBalanceAction(balance: CpfBalance)`
+- `saveRetirementOneOffAction(item: RetirementOneOff)`
+- `deleteRetirementOneOffAction(id: string)`
+
+**1.5** Update `src/app/api/setup/provision/route.ts` to include `CpfBalances` and `RetirementOneOffs` tabs.
+
+**1.6** Create `src/app/api/setup/migrate-retirement/route.ts` — adds `CpfBalances` and `RetirementOneOffs` tabs to existing sheet. Returns `{ created: string[] }`.
+
+**AC:** Sheet helpers compile; provision route creates both tabs with correct headers; migrate route is idempotent.
+
+---
+
+### Phase 2 — CPF Computation Engine ⬜
+
+**Priority: 2**
+
+**File:** `src/lib/retirement/cpf.ts`
+
+#### Functions
+
+**`getCpfContributionRate(age: number)`** → `{ employer, employee, total }` — looks up `CPF_CONTRIBUTION_RATES` by age bracket.
+
+**`getCpfAllocationRates(age: number)`** → `{ oa, sa, ma }` — looks up `CPF_ALLOCATION_RATES`. At age ≥55, `sa` is 0.
+
+**`projectCpfYear(params)`:**
+```ts
+{
+  currentYear: number;
+  dob: string;
+  balances: { oa, sa, ma, ra };
+  grossMonthlySalary: number;
+  brsAtAge55: number;        // pre-computed
+}
+→ CpfProjectionYear
+```
+- Computes age from dob + currentYear
+- Applies 12 months of contributions using `getCpfContributionRate` + `getCpfAllocationRates`
+- Applies annual interest on OA/SA/MA/RA (including extra 1% on first $60k combined)
+- At age 55: transfers SA to RA up to projected FRS; excess OA above BRS flagged as withdrawable
+- At age 65 (or `payoutStartAge`): RA converts to CPF LIFE; computes `cpfLifeMonthlyPayout`
+
+**`projectCpf(params)`:**
+```ts
+{
+  startBalances: CpfBalance;
+  dob: string;
+  grossMonthlySalary: number;
+  endYear: number;
+  payoutStartAge: number;
+}
+→ CpfProjectionYear[]
+```
+Year-by-year from start date through `endYear`.
+
+**Tests** (`src/lib/retirement/__tests__/cpf.test.ts`):
+- Contribution rate correct for each age bracket
+- Interest computes correctly for a known year
+- SA→RA transfer happens at age 55, SA becomes 0
+- CPF LIFE payout non-null from payout age
+- BRS withdrawal: excess above BRS extracted at age 55 and added to investable pool
+
+---
+
+### Phase 3 — Retirement Projection Engine ⬜
+
+**Priority: 3**
+
+**File:** `src/lib/retirement/projections.ts`
+
+#### Function: `projectRetirement(params)`
+
+```ts
+{
+  cpfStartBalances: CpfBalance;
+  dob: string;
+  retirementAge: number;
+  payoutStartAge: number;
+  grossMonthlySalary: number;        // from expense projections or override
+  netMonthlyCashFlow: number;        // income − expenses (from expense projection engine)
+  currentPortfolioByTicker: Record<string, number>;   // SGD value per ticker
+  tickerReturns: Record<string, number>;              // annual % per ticker
+  tickerWeights: Record<string, number>;              // current weight per ticker (sum=1)
+  oneOffs: RetirementOneOff[];
+  horizonYears: number;
+}
+→ RetirementProjectionYear[]
+```
+
+**Logic per year:**
+1. CPF: call `projectCpfYear`; capture `brsWithdrawal` at age 55
+2. Employee CPF contribution deducted from gross salary → reduces investable cash
+3. Net investable cash = `netMonthlyCashFlow × 12` + `brsWithdrawal` (at 55) − `oneOffExpenses`
+4. If `netInvestable > 0`: distribute proportionally across tickers by weight
+5. Each ticker grows by its annual return %
+6. `netWorth = investments + totalCpf + cashReserve`
+
+**Tests** (`src/lib/retirement/__tests__/projections.test.ts`):
+- Without any income or one-offs: investments grow purely by ticker return
+- One-off expense in year Y reduces investments in that year
+- BRS withdrawal at 55 is added to investments
+- CPF LIFE payout starts at `payoutStartAge`, adds to net monthly cash flow from that year
+
+---
+
+### Phase 4 — CPF Panel in Expenses Tab ⬜
+
+**Priority: 4**
+
+**New component:** `src/components/expenses/CpfPanel.tsx` (`'use client'`)
+
+Displays a compact read-only panel showing latest CPF balances and computed monthly contribution estimate.
+
+**Props:** `balance: CpfBalance | null`, `grossMonthlySalary: number`, `userAge: number`
+
+**UI:**
+- Three balance cards: OA | SA | MA with formatted SGD amounts and an as-of date label
+- Monthly contribution row: employee share | employer share | total (computed via `getCpfContributionRate` + `getCpfAllocationRates`)
+- "Update balances" button → opens inline form to enter new OA/SA/MA + date, calls `saveCpfBalanceAction`
+- If `balance === null`: empty state prompting user to enter balances
+
+**Wiring:**
+- `src/app/expenses/page.tsx`: fetch `getLatestCpfBalance()`, compute `userAge` from DOB constant, pass to `ExpensesClient`
+- `ExpensesClient.tsx`: render `<CpfPanel>` below the import button row, above the tab bar
+
+---
+
+### Phase 5 — Retirement Page ⬜
+
+**Priority: 5**
+
+#### Server Component: `src/app/retirement/page.tsx`
+
+`force-dynamic`. Fetches: `getLatestCpfBalance()`, `getRetirementOneOffs()`, portfolio holdings + prices (reuse existing `computePortfolioSnapshot`). Passes all to `RetirementClient`.
+
+#### Client Component: `src/components/retirement/RetirementClient.tsx`
+
+**Settings panel** (collapsible, localStorage-persisted):
+- DOB: pre-filled `'1984-06'`, editable
+- Retirement age: default 65
+- Payout start age: default 65, range 65–70 (deferral shown: "+X% per year")
+- Gross monthly salary: pre-filled from CPF derivation, overridable
+- Per-ticker return inputs: one `%` field per current holding (BRK-B, TSM, JK8.SI, 2823.HK, 2838.HK)
+
+**One-off expenses editor:**
+- Table: year | description | amount SGD | delete button
+- Add row form: year input, description, amount → `saveRetirementOneOffAction`
+- Optimistic updates
+
+**Projection chart:**
+- Stacked area chart (SVG, same pattern as existing charts)
+- Layers (bottom to top): Investments | OA | SA/RA | MA | Cash Reserve
+- X-axis: years to retirement age + 10 post-retirement
+- Vertical marker line at retirement age and at CPF LIFE start age
+- Toggle: show net worth only vs. stacked breakdown
+
+**KPI cards (at retirement age):**
+- Total net worth
+- Investment value
+- Total CPF (OA+RA+MA)
+- Monthly CPF LIFE payout (SGD/month)
+- Monthly cash flow required to fund retirement (from expense projection at that year)
+
+---
+
+### Phase 6 — Navigation & Provisioning ⬜
+
+**Priority: 6**
+
+**6.1** Add **Retirement** link to `src/components/nav.tsx` (after Expenses, before Setup).
+
+**6.2** Ensure `provision/route.ts` includes both new tabs (done in Phase 1.5).
+
+**6.3** Add `MigrateRetirementSection` to `src/app/setup/page.tsx` — button to run `POST /api/setup/migrate-retirement`.
+
+---
+
+### Completion checklist
+
+**Phase 1 — Data layer**
+- [ ] `CpfBalance`, `RetirementOneOff`, `CpfProjectionYear`, `RetirementProjectionYear`, `RetirementSettings` types
+- [ ] CPF rate/allocation/interest/retirement sum constants
+- [ ] `src/lib/retirement/sheets.ts` helpers
+- [ ] Server actions for CPF balance + one-off CRUD
+- [ ] Provision route updated; migrate-retirement route created
+
+**Phase 2 — CPF engine**
+- [ ] `getCpfContributionRate`, `getCpfAllocationRates`
+- [ ] `projectCpfYear` (contributions, interest, SA→RA at 55, CPF LIFE at 65)
+- [ ] `projectCpf` (year-by-year array)
+- [ ] Tests passing
+
+**Phase 3 — Retirement projection engine**
+- [ ] `projectRetirement` (combines CPF + investments + one-offs)
+- [ ] Tests passing
+
+**Phase 4 — CPF panel**
+- [ ] `CpfPanel` component (balance display + contribution estimate + update form)
+- [ ] Wired into `ExpensesClient`
+- [ ] `getLatestCpfBalance` fetched in expenses page
+
+**Phase 5 — Retirement page**
+- [ ] `src/app/retirement/page.tsx`
+- [ ] `RetirementClient` — settings panel (DOB, ages, returns)
+- [ ] One-off expenses editor
+- [ ] Stacked area projection chart
+- [ ] KPI cards at retirement age
+
+**Phase 6 — Nav & provisioning**
+- [ ] Retirement nav link
+- [ ] `MigrateRetirementSection` in setup page
 
 ---
 

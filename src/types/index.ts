@@ -120,3 +120,61 @@ export interface CategoryProjectionSetting {
   mode: ProjectionMode;
   fixedAmount?: number;
 }
+
+export interface CpfBalance {
+  date: string;   // YYYY-MM-DD (as of date)
+  oa: number;
+  sa: number;
+  ma: number;
+}
+
+export interface RetirementOneOff {
+  id: string;
+  year: number;
+  description: string;
+  amountSGD: number;
+  inTodaysPrices?: boolean;
+}
+
+export interface CpfProjectionYear {
+  year: number;
+  age: number;
+  oa: number;
+  sa: number;           // 0 after age 55
+  ma: number;
+  ra: number;           // created at 55
+  totalCpf: number;
+  monthlyContribEmployee: number;
+  monthlyContribEmployer: number;
+  cpfLifeMonthlyPayout: number | null;   // non-null from payout start age
+  brsWithdrawal: number;                 // cash withdrawn at age 55 (OA above BRS); 0 all other years
+}
+
+export interface RetirementProjectionYear {
+  year: number;
+  age: number;
+  investments: number;         // total portfolio value SGD
+  cpf: CpfProjectionYear;
+  cashReserve: number;
+  netWorth: number;
+  netMonthlyCashFlow: number;
+  oneOffExpenses: number;      // total one-offs in this year
+}
+
+export interface RetirementSettings {
+  dob: string;                                    // 'YYYY-MM'
+  retirementAge: number;                          // default 65
+  payoutStartAge: number;                         // default 65, max 70
+  tickerReturns: Record<string, number>;          // ticker → annual % e.g. { 'BRK-B': 8 }
+  grossMonthlySalaryOverride: number | null;      // null = derived from expense projections
+  inflationRate: number;                          // annual % for today's-prices one-offs, default 2.5
+}
+
+export interface CpfTransaction {
+  date: string;     // YYYY-MM-DD
+  code: string;     // e.g. CON, HSE, INT, MSL, CSL, MED, DPS, HPS
+  ref: string;      // employer ref label e.g. 'JUL 2025A' for CON rows; '' for others
+  oaChange: number; // signed — negative means deduction from OA
+  saChange: number;
+  maChange: number;
+}

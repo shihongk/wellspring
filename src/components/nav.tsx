@@ -9,6 +9,7 @@ const links = [
   { href: '/transactions', label: 'Transactions' },
   { href: '/cash', label: 'Cash' },
   { href: '/expenses', label: 'Expenses' },
+  { href: '/retirement', label: 'Retirement' },
   { href: '/plan', label: 'Plan' },
   { href: '/setup', label: 'Setup' },
 ];

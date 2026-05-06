@@ -6,6 +6,12 @@ vi.mock('@/lib/expenses/sheets', () => ({
   appendExpenses: vi.fn(),
 }));
 
+vi.mock('@/lib/retirement/sheets', () => ({
+  getCpfTransactionKeys: vi.fn(),
+  appendCpfTransactions: vi.fn(),
+  upsertCpfBalance: vi.fn(),
+}));
+
 vi.mock('pdf-parse', () => ({ default: vi.fn() }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -14,6 +20,8 @@ vi.mock('fs', async (importOriginal) => {
     ...actual,
     readdirSync: vi.fn(),
     readFileSync: vi.fn().mockReturnValue(Buffer.from('')),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
   };
 });
 
@@ -23,6 +31,7 @@ vi.mock('@/lib/expenses/detect', () => ({ detectStatementType: vi.fn() }));
 
 import { importStatements } from '@/lib/expenses/pipeline';
 import { getExpenseIds, getExpenseRules, appendExpenses } from '@/lib/expenses/sheets';
+import { getCpfTransactionKeys, appendCpfTransactions } from '@/lib/retirement/sheets';
 import { readdirSync } from 'fs';
 import pdfParse from 'pdf-parse';
 import { parseUOBDeposit } from '@/lib/expenses/parsers/uob-deposit';
@@ -47,6 +56,8 @@ function makeTx(id: string): ExpenseTransaction {
 beforeEach(() => {
   vi.mocked(getExpenseRules).mockResolvedValue([]);
   vi.mocked(appendExpenses).mockResolvedValue(undefined);
+  vi.mocked(getCpfTransactionKeys).mockResolvedValue(new Set());
+  vi.mocked(appendCpfTransactions).mockResolvedValue(undefined);
   vi.mocked(detectStatementType).mockReturnValue('uob-deposit');
   vi.mocked(pdfParse).mockResolvedValue({ text: 'customer.service@uobgroup.com stub' } as any);
   vi.mocked(readdirSync).mockReturnValue(['stmt.pdf'] as any);

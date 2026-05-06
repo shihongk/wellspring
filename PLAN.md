@@ -11,9 +11,163 @@
 | v0.4.1 | 2026-04-20 | ✅ Complete |
 | v0.5 | 2026-05-03 | ✅ Complete |
 | v0.6 | 2026-05-04 | ✅ Complete |
-| v0.7 | 2026-05-05 | 🔄 In progress |
+| v0.7 | 2026-05-06 | ✅ Complete |
+| v0.8 | 2026-05-07 | 🔄 In progress |
 
 ---
+
+## v0.8 — CPF Tab, Transaction History & Projection Corrections
+
+### Objective
+
+Three improvements to the CPF/retirement feature:
+1. Move CPF into its own dedicated tab in the Expenses page.
+2. Store and display CPF transactions from the annual statement.
+3. Fix retirement projections to deduct HDB loan payments (OA) and MediSave premiums (MA).
+
+---
+
+### Key facts (user-provided)
+
+- **HDB loan:** started Sep 2023, 25-year term → ends Sep 2048. Monthly OA deduction: **$1,205**.
+- **MediSave (MSL + CSL):** from the 2025 statement: ~$591 MSL + ~$227 CSL ≈ **$818/year from MA**. Scale by healthcare inflation (~5%/year) in projections.
+
+---
+
+### Change 1 — CPF tab in Expenses
+
+Current tabs: `transactions | projections`
+New tabs: `transactions | cpf | projections`
+
+- Move `<CpfPanel>` from always-visible (above tab bar) into the CPF tab body.
+- CPF tab shows: CPF balance panel (top) + CPF transaction list (below).
+- No changes to `ImportButton` placement or behaviour.
+
+**Files:** `src/components/expenses/ExpensesClient.tsx`
+
+---
+
+### Change 2 — Store & display CPF transactions
+
+**New sheet tab:** `CpfTransactions`
+
+| Column | Value |
+|---|---|
+| `date` | `YYYY-MM-DD` |
+| `code` | e.g. `CON`, `HSE`, `INT`, `MSL`, `CSL`, `MED` |
+| `ref` | employer/ref label from statement footer (e.g. `A`, `B`, `C`), empty if none |
+| `oa_change` | signed number (negative = deduction) |
+| `sa_change` | signed number |
+| `ma_change` | signed number |
+
+**New type (`src/types/index.ts`):**
+```ts
+export interface CpfTransaction {
+  date: string;       // YYYY-MM-DD
+  code: string;
+  ref: string;        // '' if none
+  oaChange: number;
+  saChange: number;
+  maChange: number;
+}
+```
+
+**Parser update (`src/lib/expenses/parsers/cpf-annual.ts`):**
+- Add `parseCpfTransactions(text: string): CpfTransaction[]` alongside the existing `parseCpfAnnual`.
+- Parse every data row (not just BAL rows): `DD MMM CODE [REF] $X.XX $X.XX $X.XX`.
+- Skip appendix/legend lines.
+
+**Pipeline update (`src/lib/expenses/pipeline.ts`):**
+- After `upsertCpfBalance`, call `appendCpfTransactions(txs)` (new sheet helper).
+- Deduplication: skip rows where the same `date + code + ref` already exists in the sheet (load existing set once at the start of the import run, same pattern as `getExpenseIds`).
+
+**New sheet helpers (`src/lib/retirement/sheets.ts`):**
+- `getCpfTransactionKeys(): Promise<Set<string>>` — returns `Set<"date|code|ref">` for dedup.
+- `appendCpfTransactions(rows: CpfTransaction[]): Promise<void>` — batch append.
+
+**New provision tab (`src/app/api/setup/provision/route.ts`):**
+```
+{ title: 'CpfTransactions', headers: ['date','code','ref','oa_change','sa_change','ma_change'] }
+```
+
+**Display (CPF tab in `ExpensesClient`):**
+- Chronological list of `CpfTransaction` rows fetched from the sheet.
+- Group by month. Each row: date | code | ref | OA Δ | SA Δ | MA Δ.
+- Colour: positive = gain colour, negative = loss colour.
+
+**New sheet helper:** `getCpfTransactions(): Promise<CpfTransaction[]>` — all rows ascending.
+
+**New page data fetch (`src/app/expenses/page.tsx`):** add `getCpfTransactions()` alongside existing fetches, pass to `ExpensesClient`.
+
+---
+
+### Change 3 — HDB deduction in OA projection
+
+**In `src/lib/retirement/cpf.ts` → `projectCpfYear`:**
+
+After adding annual contributions but before computing interest, deduct HDB loan payment from OA:
+
+```ts
+// HDB loan: Sep 2023 – Sep 2048, $1,205/month from OA
+const HDB_MONTHLY = 1205;
+const HDB_END_YEAR = 2048; // Sep 2048 — treated as full year 2048, stops in 2049
+
+if (currentYear <= HDB_END_YEAR && grossMonthlySalary > 0) {
+  oa -= HDB_MONTHLY * 12;
+  oa = Math.max(0, oa); // OA can't go negative
+}
+```
+
+Note: deduction only applies while employed (salary > 0). At retirement, HDB would switch to cash payments — but the loan ends 2048 and retirement is 2049, so the deduction covers the full loan period without hitting retirement.
+
+---
+
+### Change 4 — MediSave deductions in MA projection
+
+**In `src/lib/retirement/cpf.ts` → `projectCpfYear`:**
+
+After contributions, deduct annual MediSave outflows from MA:
+
+```ts
+// MediShield Life + CareShield Life: ~$818/year at age 40, scaled 5%/year healthcare inflation
+const BASE_MA_DEDUCTION = 818;  // 2025 actuals
+const BASE_YEAR = 2025;
+const HEALTHCARE_INFLATION = 0.05;
+
+const maDeduction = BASE_MA_DEDUCTION * Math.pow(1 + HEALTHCARE_INFLATION, currentYear - BASE_YEAR);
+ma -= maDeduction;
+ma = Math.max(0, ma); // MA can't go negative (topped up by contributions)
+```
+
+---
+
+### New constants (`src/lib/constants.ts`)
+
+```ts
+export const HDB_MONTHLY_OA = 1205;
+export const HDB_LOAN_END_YEAR = 2048;
+export const MA_BASE_ANNUAL_DEDUCTION = 818;   // MSL + CSL actuals from 2025 statement
+export const MA_DEDUCTION_BASE_YEAR = 2025;
+export const MA_HEALTHCARE_INFLATION = 0.05;
+export const SHEET_NAMES = { ..., CPF_TRANSACTIONS: 'CpfTransactions' };
+```
+
+---
+
+### Migration
+
+New route `POST /api/setup/migrate-cpf-transactions` — adds `CpfTransactions` tab to existing sheet, idempotent. Add button to setup page.
+
+---
+
+### Phase checklist
+
+- [ ] **Phase 1 — Types & schema:** `CpfTransaction` type, `CPF_TRANSACTIONS` constant, provision + migrate route
+- [ ] **Phase 2 — Parser:** `parseCpfTransactions` in `cpf-annual.ts`
+- [ ] **Phase 3 — Data layer:** `getCpfTransactionKeys`, `appendCpfTransactions`, `getCpfTransactions` in `retirement/sheets.ts`
+- [~] **Phase 4 — Pipeline:** `cpfImported` counter + `cpf-annual` routing done; `appendCpfTransactions` call not wired yet (Phase 3 must land first)
+- [ ] **Phase 5 — Projection fixes:** HDB deduction + MediSave deduction in `projectCpfYear`; add constants
+- [~] **Phase 6 — UI:** `<CpfPanel>` imported in `ExpensesClient` but above tab bar; CPF tab not yet added; transaction list, tab restructure, and page fetch not done
 
 ---
 
@@ -138,7 +292,7 @@ export interface RetirementSettings {
 
 ---
 
-### Phase 1 — Types, Schema & Data Layer ⬜ **[START HERE]**
+### Phase 1 — Types, Schema & Data Layer ✅
 
 **Priority: 1 (foundation for all phases)**
 
@@ -177,7 +331,7 @@ export interface RetirementSettings {
 
 ---
 
-### Phase 2 — CPF Computation Engine ⬜
+### Phase 2 — CPF Computation Engine ✅
 
 **Priority: 2**
 
@@ -228,7 +382,7 @@ Year-by-year from start date through `endYear`.
 
 ---
 
-### Phase 3 — Retirement Projection Engine ⬜
+### Phase 3 — Retirement Projection Engine ✅
 
 **Priority: 3**
 
@@ -329,7 +483,7 @@ Displays a compact read-only panel showing latest CPF balances and computed mont
 
 ---
 
-### Phase 6 — Navigation & Provisioning ⬜
+### Phase 6 — Navigation & Provisioning ✅
 
 **Priority: 6**
 
@@ -344,37 +498,37 @@ Displays a compact read-only panel showing latest CPF balances and computed mont
 ### Completion checklist
 
 **Phase 1 — Data layer**
-- [ ] `CpfBalance`, `RetirementOneOff`, `CpfProjectionYear`, `RetirementProjectionYear`, `RetirementSettings` types
-- [ ] CPF rate/allocation/interest/retirement sum constants
-- [ ] `src/lib/retirement/sheets.ts` helpers
-- [ ] Server actions for CPF balance + one-off CRUD
-- [ ] Provision route updated; migrate-retirement route created
+- [x] `CpfBalance`, `RetirementOneOff`, `CpfProjectionYear`, `RetirementProjectionYear`, `RetirementSettings` types
+- [x] CPF rate/allocation/interest/retirement sum constants
+- [x] `src/lib/retirement/sheets.ts` helpers
+- [x] Server actions for CPF balance + one-off CRUD
+- [x] Provision route updated; migrate-retirement route created
 
 **Phase 2 — CPF engine**
-- [ ] `getCpfContributionRate`, `getCpfAllocationRates`
-- [ ] `projectCpfYear` (contributions, interest, SA→RA at 55, CPF LIFE at 65)
-- [ ] `projectCpf` (year-by-year array)
-- [ ] Tests passing
+- [x] `getCpfContributionRate`, `getCpfAllocationRates`
+- [x] `projectCpfYear` (contributions, interest, SA→RA at 55, CPF LIFE at 65)
+- [x] `projectCpf` (year-by-year array)
+- [x] Tests passing (17)
 
 **Phase 3 — Retirement projection engine**
-- [ ] `projectRetirement` (combines CPF + investments + one-offs)
-- [ ] Tests passing
+- [x] `projectRetirement` (combines CPF + investments + one-offs)
+- [x] Tests passing (9)
 
-**Phase 4 — CPF panel**
-- [ ] `CpfPanel` component (balance display + contribution estimate + update form)
-- [ ] Wired into `ExpensesClient`
-- [ ] `getLatestCpfBalance` fetched in expenses page
+**Phase 4 — CPF panel** ✅
+- [x] `CpfPanel` component (balance display + contribution estimate + update form)
+- [x] Wired into `ExpensesClient`
+- [x] `getLatestCpfBalance` fetched in expenses page
 
-**Phase 5 — Retirement page**
-- [ ] `src/app/retirement/page.tsx`
-- [ ] `RetirementClient` — settings panel (DOB, ages, returns)
-- [ ] One-off expenses editor
-- [ ] Stacked area projection chart
-- [ ] KPI cards at retirement age
+**Phase 5 — Retirement page** ✅
+- [x] `src/app/retirement/page.tsx`
+- [x] `RetirementClient` — settings panel (DOB, ages, returns)
+- [x] One-off expenses editor
+- [x] Stacked area projection chart
+- [x] KPI cards at retirement age
 
 **Phase 6 — Nav & provisioning**
-- [ ] Retirement nav link
-- [ ] `MigrateRetirementSection` in setup page
+- [x] Retirement nav link
+- [x] `MigrateRetirementSection` in setup page
 
 ---
 

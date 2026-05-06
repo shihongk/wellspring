@@ -13,6 +13,9 @@ const TABS = [
   { title: 'Expenses',     headers: ['id', 'date', 'post_date', 'description', 'amount', 'direction', 'balance', 'account', 'category', 'source_file', 'imported_at', 'excluded', 'one_off'] },
   { title: 'ExpenseRules', headers: ['merchant', 'category'] },
   { title: 'ExpenseProjections', headers: ['month', 'category', 'amount'] },
+  { title: 'CpfBalances',        headers: ['date', 'oa', 'sa', 'ma'] },
+  { title: 'RetirementOneOffs',  headers: ['id', 'year', 'description', 'amount_sgd'] },
+  { title: 'CpfTransactions',    headers: ['date', 'code', 'ref', 'oa_change', 'sa_change', 'ma_change'] },
 ];
 
 export async function POST(request: Request) {
@@ -33,7 +36,6 @@ export async function POST(request: Request) {
 
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Get existing sheets
     const meta = await sheets.spreadsheets.get({ spreadsheetId });
     const existing = meta.data.sheets?.map((s) => s.properties?.title ?? '') ?? [];
 
@@ -46,7 +48,6 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Add the sheet tab
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
@@ -54,7 +55,6 @@ export async function POST(request: Request) {
         },
       });
 
-      // Write the header row
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `${tab.title}!A1`,
@@ -65,7 +65,6 @@ export async function POST(request: Request) {
       created.push(tab.title);
     }
 
-    // Seed Cash tab with a Default SGD row if it was just created
     if (created.includes('Cash')) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,

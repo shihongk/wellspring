@@ -6,15 +6,138 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
-## Next Up — v0.7 (design complete, not started)
+## Retirement Chart & One-off Improvements (2026-05-06)
 
-Retirement & CPF projection feature. Full plan in `PLAN.md` (6 phases). Key deliverables:
-- `src/lib/retirement/` — CPF computation engine + projection engine
-- `CpfPanel` component embedded in the Expenses tab
-- New `/retirement` page with stacked area chart + KPI cards
-- Two new Sheet tabs: `CpfBalances`, `RetirementOneOffs`
+### One-off expenses — today's prices + inflation
 
-Start with Phase 1 (types + Sheet helpers + Server Actions). Tell Gemini: *"Implement `tasks/v0.7-phase1.md`. Read `HANDOVER.md` first."* (task doc not yet written — Claude writes it before handing off).
+- `RetirementOneOff` gains optional `inTodaysPrices?: boolean` (sheet column E, stored as `'TRUE'`/`'FALSE'`)
+- `RetirementSettings` gains `inflationRate: number` (default 2.5 %, persisted in `localStorage`)
+- Projection engine (`projections.ts`): when `inTodaysPrices` is set, amount is inflated as `amount × (1 + rate/100)^(year − startYear)`
+- One-off form: "Today's prices" checkbox (defaults checked); "Amount" placeholder updated
+- One-off table: two amount columns — **Today's $** (entered value, or `—` for nominal entries) and **Projected** (inflation-adjusted, muted)
+- Projection Settings panel: new **Inflation Rate (%)** input (grid now 6 columns)
+
+### Projection chart hover tooltip
+
+- Hover over any year → snaps to nearest data point; shows vertical dashed line + DOM circle (not SVG — avoids distortion from `preserveAspectRatio="none"`)
+- Tooltip shows: **Income** and **Expenses** from the actual expense projection (reads `wellspring_projection_settings` from localStorage, same store as the Expenses tab); **CPF LIFE** line once payouts start; portfolio breakdown (Investments, CPF OA/SA+RA/MA, Cash Reserve); **Net Worth**; one-offs if any
+- Expense data flow: `retirement/page.tsx` now fetches `getExpenses()` + `getProjectionOverrides()` and passes to `RetirementClient`; `useMemo` in client runs `computeBaselineAverages` + `generateProjections` for all projection-horizon months, aggregates to `Record<year, { income, expenses }>`
+- Removed redundant "Age 65" chart label (retirement age already shown in KPI heading)
+- Fixed x-axis label overlap near origin: first tick left-aligns, last tick right-aligns, "0" y-axis baseline label suppressed
+
+### Sheet schema update
+
+- `RetirementOneOffs`: `id | year | description | amount_sgd | in_today_prices`
+
+---
+
+## Current State — v0.8 (complete)
+
+All 6 phases of v0.8 are complete.
+
+- **Phase 1**: Added `CpfTransaction` to types, updated `constants.ts` with `SHEET_NAMES.CPF_TRANSACTIONS` and HDB/MA deductions, and added `POST /api/setup/migrate-cpf-transactions` and wired to provision route.
+- **Phase 2**: Created `parseCpfTransactions` inside `cpf-annual.ts` to parse individual transactions from the statement.
+- **Phase 3**: Added Google Sheets read/write/append operations for CPF transactions (`getCpfTransactionKeys`, `appendCpfTransactions`, `getCpfTransactions`).
+- **Phase 4**: Wired CPF transaction saving into `pipeline.ts` for `cpf-annual` statements.
+- **Phase 5**: Deducted HDB OA and MediSave MA premiums in the CPF projection engine.
+- **Phase 6**: Created `CpfTransactionList` component, updated `ExpensesClient` to introduce a dedicated `CPF` tab between `Transactions` and `Projections`, and updated `page.tsx` to load and pass transactions down.
+
+### Tests
+
+All 145 tests pass (two regressions introduced by Gemini were fixed: `pipeline.test.ts` fs mock + `hsbc-composite.ts` parser rewrite).
+
+---
+
+## v0.7 Complete (2026-05-06)
+
+All 6 phases shipped. See per-phase sections below for detail.
+
+## Current State — v0.7 Phase 6 (complete)
+
+### Phase 6 — Navigation & Provisioning ✅
+
+- `src/components/setup/MigrateRetirementSection.tsx` — `'use client'` component; calls `POST /api/setup/migrate-retirement` (no body, uses `process.env`); handles `idle | running | done | already-exists | error` states.
+- Rendered in `src/app/setup/page.tsx` under a "Migrations" heading below the main form.
+
+## Current State — v0.7 Phase 5 (complete)
+
+### Phase 5 — Retirement Page ✅
+
+- `src/app/retirement/page.tsx` — Server Component; fetches CPF balances, one-offs, holdings, and prices; computes `currentPortfolioByTicker` and `tickerWeights`.
+- `src/components/retirement/RetirementClient.tsx` — Client Component; settings panel (collapsible), SVG projection chart (Net Worth / Stacked Breakdown modes), KPI cards at retirement age.
+- Implemented One-off Expenses editor with optimistic `saveRetirementOneOffAction` and `deleteRetirementOneOffAction`.
+- Settings (including per-ticker returns) automatically persist to `localStorage`.
+- Added "Retirement" link to the sidebar navigation between Expenses and Plan.
+- Projection logic ignores initial cash by design, focusing on injecting ongoing surplus cash + CPF LIFE cash flow.
+
+---
+
+## Current State — v0.7 Phase 4 (complete)
+
+### Phase 4 — CPF Panel in Expenses Tab ✅
+
+- Created `src/components/expenses/CpfPanel.tsx` (`'use client'`) component showing CPF balances and an estimated monthly contribution breakdown.
+- Implemented an inline form to update balances, which fires `saveCpfBalanceAction` with optimistic updates.
+- Handled empty state prompting the user to enter their initial balances.
+- Wired into `src/components/expenses/ExpensesClient.tsx` (rendered above the tab bar) and updated its prop signature.
+
+---
+ 
+All v0.7 phases are complete. The retirement tracking feature is fully shipped!
+
+---
+
+## Current State — v0.7 Phases 1–3 (complete, 2026-05-06)
+
+### Phase 1 — Types, Schema & Data Layer ✅
+
+| Change | Detail |
+|---|---|
+| `src/types/index.ts` | `CpfBalance`, `RetirementOneOff`, `CpfProjectionYear` (incl. `brsWithdrawal`), `RetirementProjectionYear`, `RetirementSettings` added |
+| `src/lib/constants.ts` | `SHEET_NAMES.CPF_BALANCES`, `SHEET_NAMES.RETIREMENT_ONE_OFFS`; `CPF_CONTRIBUTION_RATES`, `CPF_ALLOCATION_RATES`, `CPF_INTEREST`, `CPF_RETIREMENT_SUMS_2026`, `CPF_LIFE_BASE_BRS_MONTHLY`, `CPF_LIFE_DEFERRAL_BONUS` added |
+| `src/lib/retirement/sheets.ts` | `getCpfBalances`, `getLatestCpfBalance`, `upsertCpfBalance`, `getRetirementOneOffs`, `upsertRetirementOneOff`, `deleteRetirementOneOff` |
+| `src/app/lib/actions.ts` | `saveCpfBalanceAction`, `saveRetirementOneOffAction`, `deleteRetirementOneOffAction` added |
+| `src/app/api/setup/provision/route.ts` | `CpfBalances` and `RetirementOneOffs` tabs added to `TABS` array |
+| `src/app/api/setup/migrate-retirement/route.ts` | New route — idempotent, returns `{ created, skipped }` |
+| `scripts/migrate-retirement.ts` | One-off migration script — **already run**, both tabs exist in sheet |
+
+**Sheet schema:**
+- `CpfBalances`: `date | oa | sa | ma`
+- `RetirementOneOffs`: `id | year | description | amount_sgd`
+
+### Phase 2 — CPF Computation Engine ✅
+
+**File:** `src/lib/retirement/cpf.ts`
+
+| Function | Purpose |
+|---|---|
+| `getCpfContributionRate(age)` | Returns `{ employer, employee, total }` from 5 age brackets (≤55 / 55–60 / 60–65 / 65–70 / >70). Lookup: first bracket where `age <= maxAge` |
+| `getCpfAllocationRates(age)` | Returns `{ oa, sa, ma }`. SA = 0 for age > 55. RA residual computed in engine as `total - oa - sa - ma` |
+| `projectCpfYear(params)` | Single-year projection: contributions → interest (incl. extra 1% on first $60k) → age-55 SA→RA transfer + BRS withdrawal → CPF LIFE payout at `payoutStartAge`. Accepts `lockedCpfLifePayout` to carry forward once set |
+| `projectCpf(params)` | Year-by-year array from `startBalances.date` through `endYear` |
+
+**Key design notes:**
+- RA allocation for age ≥ 55 computed as `total − oa − sa − ma` (the SA→RA routing); matches CPF official rates (11.5% at 55–60, 11% at 60–65, 5% at 65–70)
+- `brsWithdrawal` field on `CpfProjectionYear`: non-zero only at age 55; OA excess above projected BRS withdrawn (user pledges property for BRS)
+- CPF LIFE payout = `(ra / projectedBRS) × 950 × (1.07)^(payoutStartAge − 65)`
+- BRS grows 3.5%/yr from 2026 base $110,200
+
+**Tests:** `src/lib/retirement/__tests__/cpf.test.ts` — 17 tests, all passing
+
+### Phase 3 — Retirement Projection Engine ✅
+
+**File:** `src/lib/retirement/projections.ts`
+
+**`projectRetirement(params) → RetirementProjectionYear[]`**
+
+Per-year logic:
+1. Run `projectCpfYear` (zero salary after `retirementAge`)
+2. `netInvestable = netMonthlyCashFlow × 12 + cpfLifeAnnual + brsWithdrawal − oneOffExpenses`
+3. Apply annual ticker returns to each position
+4. Inject/draw `netInvestable` proportionally by `tickerWeights`; if portfolio exhausted, overflow to negative `cashReserve`
+5. `netWorth = investments + totalCpf + max(0, cashReserve)`; `netMonthlyCashFlow = input + cpfLifeMonthlyPayout`
+
+**Tests:** `src/lib/retirement/__tests__/projections.test.ts` — 9 tests, all passing
 
 ---
 
@@ -251,9 +374,9 @@ All v0.1 through v0.4.1 features are fully implemented and committed to `main`.
 
 ---
 
-## Google Sheets Tab Structure
+## Google Sheets Tab Structure (12 tabs)
 
-Seven tabs. Row 1 = header. Data starts at row 2.
+Twelve tabs. Row 1 = header. Data starts at row 2.
 
 | Tab | Columns |
 |---|---|
@@ -264,6 +387,11 @@ Seven tabs. Row 1 = header. Data starts at row 2.
 | `InvestmentSchedule` | A:month B:ticker C:name D:planned_sgd |
 | `FxRates` | A:pair B:rate C:fetched_at |
 | `PortfolioHistory` | A:date B:total_value_sgd C:fx_usdsgd D:fx_hkdsgd E:recorded_at |
+| `Expenses` | id \| date \| post_date \| description \| amount \| direction \| balance \| account \| category \| source_file \| imported_at \| excluded \| one_off |
+| `ExpenseRules` | merchant \| category |
+| `ExpenseProjections` | month \| category \| amount |
+| `CpfBalances` | date \| oa \| sa \| ma |
+| `RetirementOneOffs` | id \| year \| description \| amount_sgd |
 
 ### Migration notes
 

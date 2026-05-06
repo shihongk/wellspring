@@ -420,6 +420,7 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
         setBaselineEnd(p.baselineEnd ?? defaults.end);
         if (p.inflation) setInflation(p.inflation);
         if (p.categoryModes) setCategoryModes(p.categoryModes);
+        if (Array.isArray(p.excludedCategories)) setExcludedCategories(new Set(p.excludedCategories));
       } else {
         setBaselineStart(defaults.start);
         setBaselineEnd(defaults.end);
@@ -434,9 +435,9 @@ export function ProjectionsTab({ transactions, overrides: initialOverrides }: Pr
   useEffect(() => {
     if (!isMounted) return;
     try {
-      localStorage.setItem('wellspring_projection_settings', JSON.stringify({ baselineStart, baselineEnd, inflation, categoryModes }));
+      localStorage.setItem('wellspring_projection_settings', JSON.stringify({ baselineStart, baselineEnd, inflation, categoryModes, excludedCategories: [...excludedCategories] }));
     } catch {}
-  }, [isMounted, baselineStart, baselineEnd, inflation, categoryModes]);
+  }, [isMounted, baselineStart, baselineEnd, inflation, categoryModes, excludedCategories]);
 
   const baselineAverages = useMemo(() => {
     if (!baselineStart || !baselineEnd || baselineStart > baselineEnd) return {};

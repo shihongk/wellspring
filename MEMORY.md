@@ -32,6 +32,6 @@ Instructions I give once and expect applied automatically. Edit this file betwee
 
 ## Project-specific
 
-- **Current Focus:** v0.7 retirement projection feature — in design. Next: CPF panel in expenses tab + new `/retirement` nav page. See ROADMAP.md and cpf-retirement-KB.md.
+- **Current Focus:** v0.8 in progress (2026-05-07). Phases 1–3, 5, and most of 6 not yet implemented. See HANDOVER.md "v0.8 In Progress" section for exact gap list before touching anything.
 - **Annual Fees:** When displaying annual fees, group them by card/account to deduplicate GST items. Omit the specific amount and description; only show the card name and date to track waivers.
 - **Expense Charts:** Keep the "Hide investment" filter alongside "Hide excluded" so the Investment category doesn't skew the visual overview.

@@ -6,9 +6,11 @@ export type StatementType =
   | 'hsbc-credit-revolution'
   | 'hsbc-composite'
   | 'amex-credit'
+  | 'cpf-annual'
   | 'unknown';
 
 export function detectStatementType(filename: string, text: string): StatementType {
+  if (text.includes('CPF Account Number:') && text.includes('Yearly Statement of Account')) return 'cpf-annual';
   if (text.includes('customer.service@uobgroup.com')) return 'uob-deposit';
   if (text.includes('card.centre@uobgroup.com')) return 'uob-credit';
   if (/Citibank\s*Singapore/i.test(text)) return 'citi-credit';

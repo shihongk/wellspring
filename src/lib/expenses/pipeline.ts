@@ -5,7 +5,9 @@ import { ExpenseTransaction } from '@/types';
 import { detectStatementType } from './detect';
 import { categorize } from './categorize';
 import { getExpenseIds, getExpenseRules, appendExpenses } from './sheets';
+import { upsertCpfBalance, getCpfTransactionKeys, appendCpfTransactions } from '@/lib/retirement/sheets';
 import { ocrPdf } from './parsers/ocr-utils';
+import { parseCpfAnnual, parseCpfTransactions } from './parsers/cpf-annual';
 import { parseUOBDeposit } from './parsers/uob-deposit';
 import { parseUOBCredit } from './parsers/uob-credit';
 import { parseCitiCredit } from './parsers/citi-credit';
@@ -26,6 +28,7 @@ export interface FileResult {
 export interface ImportResult {
   imported: number;
   skipped: number;
+  cpfImported: number;
   errors: { file: string; message: string }[];
   files: FileResult[];
 }
@@ -57,13 +60,15 @@ export async function importStatements(folder: string): Promise<ImportResult> {
   const processedDir = join(folder, 'Processed');
   mkdirSync(processedDir, { recursive: true });
 
-  const [existingIds, userRules] = await Promise.all([
+  const [existingIds, userRules, cpfTxKeys] = await Promise.all([
     getExpenseIds(),
     getExpenseRules(),
+    getCpfTransactionKeys(),
   ]);
 
   const newRows: ExpenseTransaction[] = [];
   let skipped = 0;
+  let cpfImported = 0;
   const errors: { file: string; message: string }[] = [];
   const fileResults: FileResult[] = [];
 
@@ -75,6 +80,23 @@ export async function importStatements(folder: string): Promise<ImportResult> {
       const text = await extractText(filePath);
       const type = detectStatementType(filename, text);
       fileResult.type = type;
+
+      if (type === 'cpf-annual') {
+        const balance = parseCpfAnnual(text);
+        await upsertCpfBalance(balance);
+
+        const allTxs = parseCpfTransactions(text);
+        const newTxs = allTxs.filter(tx => !cpfTxKeys.has(`${tx.date}|${tx.code}|${tx.ref}`));
+        await appendCpfTransactions(newTxs);
+        newTxs.forEach(tx => cpfTxKeys.add(`${tx.date}|${tx.code}|${tx.ref}`));
+
+        cpfImported++;
+        fileResult.parsed = allTxs.length + 1;
+        try { renameSync(filePath, join(processedDir, filename)); fileResult.moved = true; } catch { /* ignore */ }
+        fileResults.push(fileResult);
+        continue;
+      }
+
       const txs = dispatch(type, text, filename);
       fileResult.parsed = txs.length;
 
@@ -117,5 +139,5 @@ export async function importStatements(folder: string): Promise<ImportResult> {
   });
   writeFileSync(join(folder, 'import.log'), logLines.join('\n') + '\n');
 
-  return { imported: newRows.length, skipped, errors, files: fileResults };
+  return { imported: newRows.length, skipped, cpfImported, errors, files: fileResults };
 }

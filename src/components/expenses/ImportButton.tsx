@@ -10,6 +10,7 @@ type State = 'idle' | 'loading' | 'done' | 'error';
 interface DoneData {
   imported: number;
   skipped: number;
+  cpfImported: number;
   files: FileResult[];
 }
 
@@ -81,6 +82,7 @@ export function ImportButton() {
         <div className="text-sm flex flex-col gap-0.5">
           <span className="text-green-600">
             {done.imported} imported, {done.skipped} skipped
+            {done.cpfImported > 0 && ` · CPF balance updated`}
           </span>
           {warns.map(f => (
             <span key={f.file} className="text-amber-600">

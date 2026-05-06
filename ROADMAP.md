@@ -12,9 +12,10 @@ Ideas and future work. **Do not design here** — just capture intent. When read
 
 ## Backlog
 
-### Wealth & Holistic Projections
-- **CPF Integration:** Ability to upload and parse CPF statements (monthly contribution, ordinary/special/medisave balances).
-- **Holistic Wealth Projections:** Combine cash flow projections (income/expenses) with portfolio holdings and CPF to project long-term net worth. Key inputs: projection horizon, CPF draw-down age, investment return assumption.
+### Retirement projections — post-v0.7 improvements
+- **Gross salary from expense projections** — `netMonthlyCashFlow` and `grossMonthlySalary` are currently hardcoded defaults (3000/9000); wire them to the expense projection engine so actuals drive the retirement model.
+- **CPF statement upload** — parse CPF annual statement PDF to auto-populate `CpfBalances` instead of manual entry.
+- **Sensitivity analysis** — show a range band on the projection chart for ±2% return scenarios.
 
 ### Expense tracker — open items
 

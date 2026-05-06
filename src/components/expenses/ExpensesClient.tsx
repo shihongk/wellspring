@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useTransition } from 'react';
-import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride } from '@/types';
+import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride, CpfBalance, CpfTransaction } from '@/types';
 import { ProjectionsTab } from './ProjectionsTab';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import {
@@ -12,6 +12,8 @@ import {
   bulkUpdateCategoryAction,
 } from '@/app/lib/actions';
 import { ImportButton } from './ImportButton';
+import { CpfPanel } from './CpfPanel';
+import { CpfTransactionList } from './CpfTransactionList';
 import {
   Utensils, TrainFront, ShoppingCart, ShoppingBag, HeartPulse, Ticket, Plane,
   Lightbulb, Repeat, TrendingUp, FileText, Home, Hammer, Landmark, Wallet, Coins, PiggyBank, ArrowRightLeft, HelpCircle, LucideIcon, Calendar,
@@ -311,9 +313,13 @@ interface Props {
   transactions: ExpenseTransaction[];
   rules: ExpenseRule[];
   overrides: ExpenseProjectionOverride[];
+  cpfBalance: CpfBalance | null;
+  cpfTransactions: CpfTransaction[];
+  userAge: number;
+  grossMonthlySalary?: number;
 }
 
-export function ExpensesClient({ transactions, overrides }: Props) {
+export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpfTransactions, userAge, grossMonthlySalary = 9000 }: Props) {
   const months = useMemo(() => {
     const keys = [...new Set(transactions.map(t => toMonthKey(t.date)))].sort().reverse();
     return keys;
@@ -334,7 +340,7 @@ export function ExpensesClient({ transactions, overrides }: Props) {
   const [applyConfirm, setApplyConfirm] = useState<{ triggeredId: string; category: string; matchIds: string[] } | null>(null);
   
   const [tab, setTab] = useState<'spending' | 'income'>('spending');
-  const [mainTab, setMainTab] = useState<'transactions' | 'projections'>('transactions');
+  const [mainTab, setMainTab] = useState<'transactions' | 'cpf' | 'projections'>('transactions');
 
   const isExcluded = (tx: ExpenseTransaction) => localExcluded[tx.id] ?? tx.excluded ?? false;
   const isOneOff   = (tx: ExpenseTransaction) => localOneOff[tx.id]   ?? tx.oneOff   ?? false;
@@ -466,6 +472,12 @@ export function ExpensesClient({ transactions, overrides }: Props) {
             Transactions
           </button>
           <button
+            onClick={() => setMainTab('cpf')}
+            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${mainTab === 'cpf' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            CPF
+          </button>
+          <button
             onClick={() => setMainTab('projections')}
             className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${mainTab === 'projections' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
@@ -475,7 +487,12 @@ export function ExpensesClient({ transactions, overrides }: Props) {
         <ImportButton />
       </div>
 
-      {mainTab === 'projections' ? (
+      {mainTab === 'cpf' ? (
+        <div className="flex flex-col gap-6">
+          <CpfPanel balance={cpfBalance} grossMonthlySalary={grossMonthlySalary} userAge={userAge} />
+          <CpfTransactionList transactions={cpfTransactions} />
+        </div>
+      ) : mainTab === 'projections' ? (
         <ProjectionsTab transactions={transactions} overrides={overrides} />
       ) : (
         <>

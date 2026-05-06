@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { MigrateRetirementSection } from '@/components/setup/MigrateRetirementSection';
+import { MigrateCpfTransactionsSection } from '@/components/setup/MigrateCpfTransactionsSection';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -244,6 +246,12 @@ export default function SetupPage() {
         </div>
       </form>
 
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Migrations</h2>
+        <MigrateRetirementSection />
+        <MigrateCpfTransactionsSection />
+      </div>
+
     </div>
   );
 }
@@ -284,4 +292,3 @@ function RestartNote() {
     </div>
   );
 }
-

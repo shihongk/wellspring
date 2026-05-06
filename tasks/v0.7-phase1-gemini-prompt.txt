@@ -1,0 +1,9 @@
+You are working on Wellspring, a Next.js 16 personal finance web app backed by Google Sheets.
+
+Start by reading these two files in full before writing any code:
+1. GEMINI.md — project conventions, critical Next.js 16 rules, code style rules
+2. tasks/v0.7-phase1-data-layer.md — exact specification of what to implement
+
+The task document is self-contained. It tells you exactly which files to create, which existing files to modify, what code to write, and what the acceptance criteria are. Follow it precisely — do not add anything beyond its scope.
+
+When done, run `npx tsc --noEmit` and confirm there are no new type errors.

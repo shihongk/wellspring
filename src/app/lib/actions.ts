@@ -15,9 +15,10 @@ import {
   upsertHistoryEntry,
 } from '@/lib/google-sheets';
 import { updateExpenseCategory, updateExpenseExcluded, updateExpenseOneOff, applyRuleToExisting, upsertExpenseRule, bulkUpdateExpenseCategory, upsertProjectionOverride, deleteProjectionOverride } from '@/lib/expenses/sheets';
+import { upsertCpfBalance, upsertRetirementOneOff, deleteRetirementOneOff } from '@/lib/retirement/sheets';
 import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
-import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow, ExpenseProjectionOverride } from '@/types';
+import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow, ExpenseProjectionOverride, CpfBalance, RetirementOneOff } from '@/types';
 
 export async function upsertHoldingAction(data: Holding): Promise<void> {
   await upsertHolding(data);
@@ -168,4 +169,20 @@ export async function saveProjectionOverrideAction(override: ExpenseProjectionOv
 export async function deleteProjectionOverrideAction(month: string, category: string): Promise<void> {
   await deleteProjectionOverride(month, category);
   revalidatePath('/expenses');
+}
+
+export async function saveCpfBalanceAction(balance: CpfBalance): Promise<void> {
+  await upsertCpfBalance(balance);
+  revalidatePath('/expenses');
+  revalidatePath('/retirement');
+}
+
+export async function saveRetirementOneOffAction(item: RetirementOneOff): Promise<void> {
+  await upsertRetirementOneOff(item);
+  revalidatePath('/retirement');
+}
+
+export async function deleteRetirementOneOffAction(id: string): Promise<void> {
+  await deleteRetirementOneOff(id);
+  revalidatePath('/retirement');
 }

@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useTransition, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { CpfBalance, RetirementOneOff, RetirementSettings, ExpenseTransaction, ExpenseProjectionOverride, InflationSettings, CategoryProjectionSetting } from '@/types';
 import { projectRetirement } from '@/lib/retirement/projections';
 import { computeBaselineAverages, generateProjections, INCOME_CATEGORIES } from '@/lib/expenses/projections';
 import { saveRetirementOneOffAction, deleteRetirementOneOffAction } from '@/app/lib/actions';
-import { Settings, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, Plus, Trash2, ChevronDown, ChevronUp, RefreshCw, Pencil, Check, X } from 'lucide-react';
 
 const INCOME_CAT_SET = new Set(INCOME_CATEGORIES);
 
@@ -17,6 +18,7 @@ export interface RetirementClientProps {
   cpfBalance: CpfBalance | null;
   oneOffs: RetirementOneOff[];
   currentPortfolioByTicker: Record<string, number>;
+  startPortfolioByTicker: Record<string, number>; // portfolio valued at CPF balance date
   tickerWeights: Record<string, number>;
   initialGrossMonthlySalary: number;
   initialNetMonthlyCashFlow: number;
@@ -28,6 +30,7 @@ export function RetirementClient({
   cpfBalance,
   oneOffs: initialOneOffs,
   currentPortfolioByTicker,
+  startPortfolioByTicker,
   tickerWeights,
   initialGrossMonthlySalary,
   initialNetMonthlyCashFlow,
@@ -46,9 +49,21 @@ export function RetirementClient({
 
   const [localOneOffs, setLocalOneOffs] = useState(initialOneOffs);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    router.refresh();
+  };
+
+  useEffect(() => {
+    setIsRefreshing(false);
+  }, [cpfBalance, currentPortfolioByTicker]);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [chartMode, setChartMode] = useState<'net-worth' | 'stacked'>('stacked');
+  const [chartRange, setChartRange] = useState<'10Y' | '20Y' | '30Y' | 'ALL'>('ALL');
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -56,6 +71,32 @@ export function RetirementClient({
   const [newOneOffDesc, setNewOneOffDesc] = useState('');
   const [newOneOffAmt, setNewOneOffAmt] = useState('');
   const [newOneOffInTodaysPrices, setNewOneOffInTodaysPrices] = useState(true);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editYear, setEditYear] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editAmt, setEditAmt] = useState('');
+  const [editInTodaysPrices, setEditInTodaysPrices] = useState(true);
+
+  const startEdit = (o: RetirementOneOff) => {
+    setEditingId(o.id);
+    setEditYear(o.year.toString());
+    setEditDesc(o.description);
+    setEditAmt(o.amountSGD.toString());
+    setEditInTodaysPrices(o.inTodaysPrices ?? true);
+  };
+
+  const cancelEdit = () => setEditingId(null);
+
+  const handleSaveEdit = () => {
+    const yr = parseInt(editYear, 10);
+    const amt = parseFloat(editAmt);
+    if (isNaN(yr) || isNaN(amt) || !editDesc || !editingId) return;
+    const updated: RetirementOneOff = { id: editingId, year: yr, description: editDesc, amountSGD: amt, inTodaysPrices: editInTodaysPrices };
+    setLocalOneOffs(prev => prev.map(o => o.id === editingId ? updated : o).sort((a, b) => a.year - b.year));
+    setEditingId(null);
+    startTransition(() => { saveRetirementOneOffAction(updated); });
+  };
 
   const [expProjSettings, setExpProjSettings] = useState<{
     baselineStart: string;
@@ -126,15 +167,16 @@ export function RetirementClient({
       retirementAge: settings.retirementAge,
       payoutStartAge: settings.payoutStartAge,
       grossMonthlySalary: settings.grossMonthlySalaryOverride ?? initialGrossMonthlySalary,
+      salaryGrowthRate: expProjSettings.inflation.incomeGrowthRate,
       netMonthlyCashFlow: netMonthlyCashFlowOverride ?? initialNetMonthlyCashFlow,
-      currentPortfolioByTicker,
+      currentPortfolioByTicker: startPortfolioByTicker,
       tickerReturns: settings.tickerReturns,
       tickerWeights,
       oneOffs: localOneOffs,
       horizonYears,
       inflationRate: settings.inflationRate,
     });
-  }, [cpfBalance, settings, netMonthlyCashFlowOverride, currentPortfolioByTicker, tickerWeights, localOneOffs, horizonYears, initialGrossMonthlySalary, initialNetMonthlyCashFlow]);
+  }, [cpfBalance, settings, netMonthlyCashFlowOverride, startPortfolioByTicker, tickerWeights, localOneOffs, horizonYears, initialGrossMonthlySalary, initialNetMonthlyCashFlow, expProjSettings.inflation.incomeGrowthRate]);
 
   // Yearly income/expense projections from the expense tab's baseline
   const yearlyExpenseProjections = useMemo(() => {
@@ -171,6 +213,20 @@ export function RetirementClient({
   const kpiCpf = atRetirement?.cpf.totalCpf ?? 0;
   const kpiCpfLife = projected.find(p => p.age === settings.payoutStartAge)?.cpf.cpfLifeMonthlyPayout ?? 0;
 
+  const handleIncomeGrowthRateChange = (rate: number) => {
+    setExpProjSettings(prev => {
+      const updated = { ...prev, inflation: { ...prev.inflation, incomeGrowthRate: rate } };
+      try {
+        const existing = JSON.parse(localStorage.getItem('wellspring_projection_settings') || '{}');
+        localStorage.setItem('wellspring_projection_settings', JSON.stringify({
+          ...existing,
+          inflation: { ...(existing.inflation ?? {}), incomeGrowthRate: rate },
+        }));
+      } catch {}
+      return updated;
+    });
+  };
+
   const handleAddOneOff = () => {
     const yr = parseInt(newOneOffYear, 10);
     const amt = parseFloat(newOneOffAmt);
@@ -200,6 +256,13 @@ export function RetirementClient({
     });
   };
 
+  const visibleProjected = (() => {
+    if (chartRange === 'ALL' || projected.length === 0) return projected;
+    const years = chartRange === '10Y' ? 10 : chartRange === '20Y' ? 20 : 30;
+    const cutoff = projected[0].year + years - 1;
+    return projected.filter(p => p.year <= cutoff);
+  })();
+
   const LAYERS = [
     { key: 'investments', color: '#0ea5e9', label: 'Investments' },
     { key: 'oa', color: '#3b82f6', label: 'CPF OA' },
@@ -214,12 +277,12 @@ export function RetirementClient({
   const plotW = width - pLeft - pRight;
   const plotH = height - pTop - pBottom;
 
-  const xMin = projected[0]?.year || currentYear;
-  const xMax = projected[projected.length - 1]?.year || currentYear + 10;
+  const xMin = visibleProjected[0]?.year || currentYear;
+  const xMax = visibleProjected[visibleProjected.length - 1]?.year || currentYear + 10;
   const xRange = Math.max(1, xMax - xMin);
 
   let maxY = 0;
-  for (const pt of projected) {
+  for (const pt of visibleProjected) {
     if (pt.netWorth > maxY) maxY = pt.netWorth;
   }
   maxY = Math.max(100000, maxY * 1.1);
@@ -228,14 +291,14 @@ export function RetirementClient({
   const getY = (val: number) => pTop + plotH - (val / maxY) * plotH;
 
   const layerPaths: { key: string; color: string; d: string }[] = [];
-  const bottoms = projected.map(() => 0);
+  const bottoms = visibleProjected.map(() => 0);
 
-  if (chartMode === 'stacked' && projected.length > 0) {
+  if (chartMode === 'stacked' && visibleProjected.length > 0) {
     for (const layer of LAYERS) {
       const ptsTop = [];
       const ptsBottom = [];
-      for (let i = 0; i < projected.length; i++) {
-        const pt = projected[i];
+      for (let i = 0; i < visibleProjected.length; i++) {
+        const pt = visibleProjected[i];
         let val = 0;
         if (layer.key === 'investments') val = pt.investments;
         else if (layer.key === 'oa') val = pt.cpf.oa;
@@ -258,8 +321,8 @@ export function RetirementClient({
   }
 
   let netWorthD = '';
-  if (chartMode === 'net-worth' && projected.length > 0) {
-    const pts = projected.map(pt => ({ x: getX(pt.year), y: getY(pt.netWorth) }));
+  if (chartMode === 'net-worth' && visibleProjected.length > 0) {
+    const pts = visibleProjected.map(pt => ({ x: getX(pt.year), y: getY(pt.netWorth) }));
     netWorthD = `M ${pts[0].x} ${getY(0)} ` +
       pts.map(p => `L ${p.x} ${p.y}`).join(' ') +
       ` L ${pts[pts.length - 1].x} ${getY(0)} Z`;
@@ -270,12 +333,12 @@ export function RetirementClient({
 
   const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const svg = svgRef.current;
-    if (!svg || projected.length === 0) return;
+    if (!svg || visibleProjected.length === 0) return;
     const rect = svg.getBoundingClientRect();
     const svgX = ((e.clientX - rect.left) / rect.width) * width;
     const yearFloat = xMin + (svgX - pLeft) / plotW * xRange;
     let best = 0, bestDist = Infinity;
-    projected.forEach((p, i) => {
+    visibleProjected.forEach((p, i) => {
       const d = Math.abs(p.year - yearFloat);
       if (d < bestDist) { bestDist = d; best = i; }
     });
@@ -294,10 +357,21 @@ export function RetirementClient({
     <div className="space-y-6 pb-12 max-w-6xl">
       {/* Settings Panel */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors">
-          <div className="flex items-center gap-2 font-semibold text-slate-700"><Settings size={18} /> Projection Settings</div>
-          {isSettingsOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
-        </button>
+        <div className="flex items-center justify-between p-4 bg-slate-50">
+          <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className="flex items-center gap-2 font-semibold text-slate-700 hover:text-slate-900 transition-colors">
+            <Settings size={18} /> Projection Settings
+            {isSettingsOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 disabled:opacity-50 transition-colors"
+            title="Refresh projection data"
+          >
+            <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
         {isSettingsOpen && (
           <div className="p-5 border-t border-slate-200">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
@@ -324,6 +398,10 @@ export function RetirementClient({
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-slate-500">Inflation Rate (%)</label>
                 <input type="number" step="0.1" value={settings.inflationRate} onChange={e => setSettings(s => ({...s, inflationRate: parseFloat(e.target.value) || 0}))} className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-slate-500">Income Growth Rate (%)</label>
+                <input type="number" step="0.1" value={expProjSettings.inflation.incomeGrowthRate} onChange={e => handleIncomeGrowthRateChange(parseFloat(e.target.value) || 0)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
               </div>
             </div>
             <div className="mt-6">
@@ -354,7 +432,14 @@ export function RetirementClient({
       {/* Main Chart */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col h-[400px]">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="font-semibold text-slate-800">Projection Chart</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold text-slate-800">Projection Chart</h3>
+            <div className="flex bg-slate-100 p-1 rounded-lg">
+              {(['10Y', '20Y', '30Y', 'ALL'] as const).map(r => (
+                <button key={r} onClick={() => { setChartRange(r); setHoverIdx(null); }} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${chartRange === r ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{r}</button>
+              ))}
+            </div>
+          </div>
           <div className="flex bg-slate-100 p-1 rounded-lg">
             <button onClick={() => setChartMode('net-worth')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${chartMode === 'net-worth' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Net Worth</button>
             <button onClick={() => setChartMode('stacked')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${chartMode === 'stacked' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Stacked Breakdown</button>
@@ -368,14 +453,14 @@ export function RetirementClient({
               <line x1={pLeft} y1={pTop + plotH} x2={width - pRight} y2={pTop + plotH} stroke="#cbd5e1" strokeWidth="1" />
               {retYear >= xMin && retYear <= xMax && (<line x1={getX(retYear)} y1={pTop} x2={getX(retYear)} y2={pTop + plotH} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 4" />)}
               {payoutYear > retYear && payoutYear >= xMin && payoutYear <= xMax && (<line x1={getX(payoutYear)} y1={pTop} x2={getX(payoutYear)} y2={pTop + plotH} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 4" />)}
-              {hoverIdx !== null && projected[hoverIdx] && (
-                <line x1={getX(projected[hoverIdx].year)} y1={pTop} x2={getX(projected[hoverIdx].year)} y2={pTop + plotH} stroke="#64748b" strokeWidth="1" strokeDasharray="3 3" />
+              {hoverIdx !== null && visibleProjected[hoverIdx] && (
+                <line x1={getX(visibleProjected[hoverIdx].year)} y1={pTop} x2={getX(visibleProjected[hoverIdx].year)} y2={pTop + plotH} stroke="#64748b" strokeWidth="1" strokeDasharray="3 3" />
               )}
             </svg>
-            {hoverIdx !== null && projected[hoverIdx] && (
+            {hoverIdx !== null && visibleProjected[hoverIdx] && (
               <div className="absolute w-2.5 h-2.5 rounded-full bg-white border-2 border-sky-400 pointer-events-none -translate-x-1/2 -translate-y-1/2" style={{
-                left: `${getX(projected[hoverIdx].year) / width * 100}%`,
-                top: `${getY(projected[hoverIdx].netWorth) / height * 100}%`,
+                left: `${getX(visibleProjected[hoverIdx].year) / width * 100}%`,
+                top: `${getY(visibleProjected[hoverIdx].netWorth) / height * 100}%`,
               }} />
             )}
             <div className="absolute top-[20px] bottom-[40px] left-0 w-[60px] flex flex-col justify-between text-[10px] text-slate-400 text-right pointer-events-none" style={{ height: plotH }}>
@@ -389,8 +474,8 @@ export function RetirementClient({
               ))}
             </div>
             {payoutYear > retYear && payoutYear >= xMin && payoutYear <= xMax && (<div className="absolute top-[0px] text-[10px] font-semibold text-slate-500 bg-white/80 px-1 rounded" style={{ left: getX(payoutYear), transform: 'translateX(-50%)' }}>CPF LIFE</div>)}
-            {hoverIdx !== null && projected[hoverIdx] && (() => {
-              const pt = projected[hoverIdx];
+            {hoverIdx !== null && visibleProjected[hoverIdx] && (() => {
+              const pt = visibleProjected[hoverIdx];
               const xPct = (getX(pt.year) / width) * 100;
               const onRight = xPct < 55;
               const expYear = yearlyExpenseProjections[pt.year];
@@ -445,11 +530,32 @@ export function RetirementClient({
                 <tr><td colSpan={5} className="py-4 text-center text-slate-400 italic">No one-off expenses recorded.</td></tr>
               ) : (
                 localOneOffs.map(o => {
+                  if (editingId === o.id) {
+                    return (
+                      <tr key={o.id} className="border-b border-slate-100 bg-slate-50">
+                        <td className="py-1.5 px-3"><input type="number" value={editYear} onChange={e => setEditYear(e.target.value)} className="w-20 px-2 py-1 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-emerald-500 outline-none" /></td>
+                        <td className="py-1.5 px-3"><input type="text" value={editDesc} onChange={e => setEditDesc(e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-emerald-500 outline-none" /></td>
+                        <td className="py-1.5 px-3"><input type="number" value={editAmt} onChange={e => setEditAmt(e.target.value)} className="w-28 px-2 py-1 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-emerald-500 outline-none" /></td>
+                        <td className="py-1.5 px-3 text-center">
+                          <label className="flex items-center justify-end gap-1 text-xs text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={editInTodaysPrices} onChange={e => setEditInTodaysPrices(e.target.checked)} className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                            Today's $
+                          </label>
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button onClick={handleSaveEdit} disabled={isPending || !editYear || !editDesc || !editAmt} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"><Check size={16} /></button>
+                            <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
                   const projected = o.inTodaysPrices
                     ? o.amountSGD * Math.pow(1 + settings.inflationRate / 100, o.year - currentYear)
                     : o.amountSGD;
                   return (
-                    <tr key={o.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <tr key={o.id} className="border-b border-slate-100 hover:bg-slate-50 group">
                       <td className="py-2 px-3 text-slate-700">{o.year}</td>
                       <td className="py-2 px-3 text-slate-700">{o.description}</td>
                       <td className="py-2 px-3 text-right font-medium text-slate-800">
@@ -460,7 +566,12 @@ export function RetirementClient({
                           ? <span className="text-slate-500">{fmtSGD(projected)}</span>
                           : fmtSGD(projected)}
                       </td>
-                      <td className="py-2 px-3 text-right"><button onClick={() => handleDeleteOneOff(o.id)} disabled={isPending} className="text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"><Trash2 size={16} /></button></td>
+                      <td className="py-2 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => startEdit(o)} disabled={isPending} className="text-slate-300 hover:text-slate-500 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"><Pencil size={15} /></button>
+                          <button onClick={() => handleDeleteOneOff(o.id)} disabled={isPending} className="text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"><Trash2 size={16} /></button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })

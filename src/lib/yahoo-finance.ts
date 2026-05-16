@@ -49,3 +49,43 @@ export async function fetchPricesAndFx(): Promise<PricesAndFx> {
 
   return { fxRates, prices, stale, fetchedAt: stale ? null : new Date().toISOString() };
 }
+
+// Returns prices and FX for the first available trading day on or after `date` (YYYY-MM-DD).
+// Returns null if any equity price or either FX rate could not be fetched.
+export async function fetchHistoricalPricesAndFx(date: string): Promise<PricesAndFx | null> {
+  const yf = new YahooFinance();
+  const allSymbols = [...EQUITY_TICKERS, ...FX_SYMBOLS];
+
+  // Query a 10-day window to span holidays and market-specific closures
+  const start = new Date(date + 'T00:00:00Z');
+  const end = new Date(start.getTime() + 10 * 24 * 60 * 60 * 1000);
+  const period2 = end.toISOString().slice(0, 10);
+
+  const results = await Promise.allSettled(
+    allSymbols.map(sym => yf.historical(sym, { period1: date, period2, interval: '1d' }))
+  );
+
+  const prices: PricesAndFx['prices'] = {};
+  let usdSgd: number | null = null;
+  let hkdSgd: number | null = null;
+
+  results.forEach((res, i) => {
+    const symbol = allSymbols[i];
+    if (res.status === 'fulfilled' && res.value && res.value.length > 0) {
+      const close = res.value[0].close;
+      if (symbol === 'USDSGD=X') usdSgd = close;
+      else if (symbol === 'HKDSGD=X') hkdSgd = close;
+      else prices[symbol] = { price: close, currency: '' }; // currency resolved from holdings by caller
+    }
+  });
+
+  const allEquityFetched = (EQUITY_TICKERS as readonly string[]).every(t => prices[t]?.price != null);
+  if (!allEquityFetched || usdSgd === null || hkdSgd === null) return null;
+
+  return {
+    fxRates: { USDSGD: usdSgd, HKDSGD: hkdSgd },
+    prices,
+    stale: false,
+    fetchedAt: date,
+  };
+}

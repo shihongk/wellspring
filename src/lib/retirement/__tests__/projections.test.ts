@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { projectRetirement } from '../projections';
 
-// Shared baseline: person well past 55 and 65 so CPF events don't interfere
+// Shared baseline: person well past 55 and 65 so CPF events don't interfere.
+// cpfDate "2026-01-01" → startYear=2026, baselineYear=2027, first projected year=2028.
 const BASE_PARAMS = {
   cpfStartBalances: { date: '2026-01-01', oa: 0, sa: 0, ma: 0 },
-  dob: '1955-01',       // age 71 in 2026 — all CPF events already passed
+  dob: '1955-01',       // age 72 in 2027 — all CPF events already passed
   retirementAge: 65,
   payoutStartAge: 65,
   grossMonthlySalary: 0,
+  salaryGrowthRate: 0,
   netMonthlyCashFlow: 0,
   currentPortfolioByTicker: { 'BRK-B': 100000 },
   tickerReturns: { 'BRK-B': 10 },
@@ -17,22 +19,35 @@ const BASE_PARAMS = {
   inflationRate: 0,
 };
 
+describe('projectRetirement — baseline entry', () => {
+  it('first result is the raw starting state with no growth', () => {
+    const results = projectRetirement({ ...BASE_PARAMS });
+    expect(results[0].year).toBe(2027);   // baselineYear = cpfYear + 1
+    expect(results[0].age).toBe(72);
+    expect(results[0].investments).toBe(100000);
+    expect(results[0].cpf.oa).toBe(0);
+    expect(results[0].cpf.monthlyContribEmployee).toBe(0);
+    expect(results[0].oneOffExpenses).toBe(0);
+  });
+});
+
 describe('projectRetirement — investments grow by ticker return only', () => {
   it('compounds at the ticker rate when cash flow and one-offs are zero', () => {
     const results = projectRetirement({ ...BASE_PARAMS });
 
-    expect(results).toHaveLength(3);
-    // Each year investments grow by exactly 10%
-    expect(results[0].investments).toBeCloseTo(110000, 0);
-    expect(results[1].investments).toBeCloseTo(121000, 0);
-    expect(results[2].investments).toBeCloseTo(133100, 0);
+    // baseline + 3 projected years
+    expect(results).toHaveLength(4);
+    // Each projected year grows by exactly 10% from the previous
+    expect(results[1].investments).toBeCloseTo(110000, 0);
+    expect(results[2].investments).toBeCloseTo(121000, 0);
+    expect(results[3].investments).toBeCloseTo(133100, 0);
   });
 
-  it('returns correct year and age on each row', () => {
+  it('returns correct year on projected rows', () => {
     const results = projectRetirement({ ...BASE_PARAMS });
-    expect(results[0].year).toBe(2026);
-    expect(results[0].age).toBe(71);
-    expect(results[1].year).toBe(2027);
+    expect(results[1].year).toBe(2028);
+    expect(results[2].year).toBe(2029);
+    expect(results[3].year).toBe(2030);
   });
 });
 
@@ -40,46 +55,50 @@ describe('projectRetirement — one-off expenses', () => {
   it('reduces investments in the year of the one-off', () => {
     const baseline = projectRetirement({ ...BASE_PARAMS });
 
+    // One-off in 2028 (first projected year = results[1])
     const withOneOff = projectRetirement({
       ...BASE_PARAMS,
-      oneOffs: [{ id: '1', year: 2027, description: 'Car', amountSGD: 50000 }],
+      oneOffs: [{ id: '1', year: 2028, description: 'Car', amountSGD: 50000 }],
     });
 
-    // Year 2026: identical (one-off is in 2027)
+    // Baseline entry (2027): identical — one-off is in 2028
     expect(withOneOff[0].investments).toBeCloseTo(baseline[0].investments, 0);
 
-    // Year 2027: 50k drawn from portfolio after returns applied
-    // baseline[1].investments = 121000; minus 50k draw = 71000
+    // 2028 (results[1]): 50k drawn from portfolio after returns applied
+    // 100000 * 1.1 = 110000; minus 50k draw = 60000
     expect(withOneOff[1].investments).toBeCloseTo(baseline[1].investments - 50000, 0);
 
-    // Year 2028: lower starting base → lower final value
+    // 2029 and 2030: lower starting base → lower final value
     expect(withOneOff[2].investments).toBeLessThan(baseline[2].investments);
+    expect(withOneOff[3].investments).toBeLessThan(baseline[3].investments);
 
     expect(withOneOff[1].oneOffExpenses).toBe(50000);
-    expect(withOneOff[0].oneOffExpenses).toBe(0);
+    expect(withOneOff[2].oneOffExpenses).toBe(0);
   });
 
   it('accumulates multiple one-offs in the same year', () => {
     const results = projectRetirement({
       ...BASE_PARAMS,
       oneOffs: [
-        { id: '1', year: 2026, description: 'A', amountSGD: 10000 },
-        { id: '2', year: 2026, description: 'B', amountSGD: 20000 },
+        { id: '1', year: 2028, description: 'A', amountSGD: 10000 },
+        { id: '2', year: 2028, description: 'B', amountSGD: 20000 },
       ],
     });
-    expect(results[0].oneOffExpenses).toBe(30000);
+    expect(results[1].oneOffExpenses).toBe(30000);
   });
 });
 
 describe('projectRetirement — BRS withdrawal at age 55', () => {
   it('adds BRS withdrawal to investments in the year the person turns 55', () => {
-    // Person born 1984 turns 55 in 2039
+    // Person born 1984 turns 55 in 2039.
+    // cpfDate "2035-01-01" → baselineYear=2036, first projected year=2037, endYear=2046.
     const params = {
       cpfStartBalances: { date: '2035-01-01', oa: 500000, sa: 80000, ma: 60000 },
       dob: '1984-06',
       retirementAge: 65,
       payoutStartAge: 65,
       grossMonthlySalary: 0,
+      salaryGrowthRate: 0,
       netMonthlyCashFlow: 0,
       currentPortfolioByTicker: { 'TSM': 200000 },
       tickerReturns: { 'TSM': 0 },   // zero return so investments only change from BRS injection
@@ -105,16 +124,17 @@ describe('projectRetirement — CPF LIFE payout', () => {
   // building up an RA balance that generates a non-zero CPF LIFE payout at 65.
   const CPF_LIFE_PARAMS = {
     cpfStartBalances: { date: '2026-01-01', oa: 100000, sa: 80000, ma: 50000 },
-    dob: '1984-06',   // age 42 in 2026, turns 55 in 2039, turns 65 in 2049
+    dob: '1984-06',   // age 43 in 2027 (baseline), turns 55 in 2039, turns 65 in 2049
     retirementAge: 65,
     payoutStartAge: 65,
     grossMonthlySalary: 0,
+    salaryGrowthRate: 0,
     netMonthlyCashFlow: 0,
     currentPortfolioByTicker: { 'BRK-B': 100000 },
     tickerReturns: { 'BRK-B': 0 },
     tickerWeights: { 'BRK-B': 1 },
     oneOffs: [],
-    horizonYears: 30,  // 2026–2055
+    horizonYears: 30,  // baseline 2027 + projected 2028–2057
     inflationRate: 0,
   };
 
@@ -158,7 +178,7 @@ describe('projectRetirement — positive cash flow', () => {
       tickerReturns: { 'BRK-B': 0 },  // zero return so growth is purely from cash injection
     });
 
-    // Year 1: investments = 100000 + 1000*12 = 112000
-    expect(results[0].investments).toBeCloseTo(112000, 0);
+    // First projected year (results[1]): investments = 100000 + 1000*12 = 112000
+    expect(results[1].investments).toBeCloseTo(112000, 0);
   });
 });

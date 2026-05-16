@@ -6,6 +6,40 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Retirement Projection Fixes (2026-05-09)
+
+### Starting portfolio value — history-based
+
+- `page.tsx` (retirement) now calls `getPortfolioHistory()` in the initial `Promise.all` and finds the entry on/before `cpfBalance.date`
+- `entry.totalValueSGD` is distributed across equity tickers by current weight proportions → `startPortfolioByTicker`
+- This replaces the old approach of `current shares × historical Yahoo prices`, which broke when share counts changed (e.g. after the Apr 14 purchase)
+- Falls back to today's prices if no history entry exists for that date
+
+### Salary growth in CPF projection
+
+- `ProjectRetirementParams` gains `salaryGrowthRate: number` (annual %, e.g. 3)
+- Each projection year applies `grossMonthlySalary × (1 + rate/100)^yearsFromStart` so CPF contributions compound with income growth
+- Wired from `expProjSettings.inflation.incomeGrowthRate` — the same value the Expenses tab uses
+
+### Income growth rate — synced between tabs
+
+- Retirement settings panel gains an **Income Growth Rate (%)** field
+- Reads/writes the shared `wellspring_projection_settings` localStorage key (same key as the Expenses tab)
+- Changing the value in either tab updates the other on next render
+
+### Chart time-range selector
+
+- 10Y / 20Y / 30Y / ALL buttons added to the left of the Projection Chart header
+- Selecting a range filters `visibleProjected` (subset of full `projected` array)
+- Y-axis scale and hover interaction are scoped to the visible range
+
+### fetchHistoricalPricesAndFx (utility, not used by retirement page)
+
+- `src/lib/yahoo-finance.ts` exports `fetchHistoricalPricesAndFx(date: string)` using `yf.historical()` over a 10-day window
+- Available for future use; retirement page uses the history-sheet approach instead
+
+---
+
 ## Retirement Chart & One-off Improvements (2026-05-06)
 
 ### One-off expenses — today's prices + inflation

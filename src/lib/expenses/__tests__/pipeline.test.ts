@@ -22,6 +22,7 @@ vi.mock('fs', async (importOriginal) => {
     readFileSync: vi.fn().mockReturnValue(Buffer.from('')),
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn(),
+    existsSync: vi.fn().mockReturnValue(true),
   };
 });
 
@@ -32,7 +33,7 @@ vi.mock('@/lib/expenses/detect', () => ({ detectStatementType: vi.fn() }));
 import { importStatements } from '@/lib/expenses/pipeline';
 import { getExpenseIds, getExpenseRules, appendExpenses } from '@/lib/expenses/sheets';
 import { getCpfTransactionKeys, appendCpfTransactions } from '@/lib/retirement/sheets';
-import { readdirSync } from 'fs';
+import { readdirSync, existsSync, mkdirSync } from 'fs';
 import pdfParse from 'pdf-parse';
 import { parseUOBDeposit } from '@/lib/expenses/parsers/uob-deposit';
 import { detectStatementType } from '@/lib/expenses/detect';
@@ -111,6 +112,15 @@ describe('importStatements — one file throws', () => {
     expect(result.errors[0].file).toBe('bad.pdf');
     expect(result.errors[0].message).toBe('corrupt PDF');
     expect(result.imported).toBe(1);
+  });
+});
+
+describe('importStatements — folder passed is Pending itself, not its parent', () => {
+  it('throws without creating a Processed dir nested inside Pending', async () => {
+    vi.mocked(existsSync).mockReturnValueOnce(false);
+
+    await expect(importStatements('/fake/folder/Pending')).rejects.toThrow(/Pending/);
+    expect(vi.mocked(mkdirSync)).not.toHaveBeenCalled();
   });
 });
 

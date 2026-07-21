@@ -94,3 +94,32 @@ describe('parseCitiCredit', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe('parseCitiCredit — concatenated (no-space) PDF, CCY CONVERSION FEE double amount', () => {
+  // Real statements print "CCY CONVERSION FEE SGD <reference> <fee>" as two adjacent
+  // SGD figures. In concatenated-text PDFs they merge into one ambiguous digit run
+  // (e.g. "5.980.05" = "5.98" + "0.05") — the naive last-float regex can misparse this
+  // as a single number ("980.05") when the first figure doesn't happen to end in "00".
+  const text = `
+CitibankSingaporeLtd
+2026
+July
+CITIREWARDSWORLDMASTERCARD54255030
+27JUNKFCONLINESINGAPORESG59.90
+27JUNCCYCONVERSIONFEESGD5.980.05
+30JUNGetGoSingaporeSG16.17
+30JUNCCYCONVERSIONFEESGD30.000.30
+`;
+
+  const result = parseCitiCredit(text, 'eStatement_Jul2026.pdf');
+
+  it('extracts the true fee (second figure), not a bogus merged number', () => {
+    const fees = result.filter(t => t.description.toUpperCase().includes('CCYCONVERSIONFEE'));
+    expect(fees).toHaveLength(2);
+    expect(fees.map(t => t.amount).sort((a, b) => a - b)).toEqual([0.05, 0.3]);
+  });
+
+  it('does not produce the mis-split amount 980.05', () => {
+    expect(result.some(t => t.amount === 980.05)).toBe(false);
+  });
+});

@@ -19,6 +19,12 @@ const CONCAT_CARD_PATTERNS: Array<{ re: RegExp; account: string }> = [
   { re: /CITICASHBACKPLUSMASTERCARD\d/i, account: 'Citi Cash Back Plus' },
 ];
 const CONCAT_TX_RE = /^(\d{2}[A-Z]{3})(.+?)(\([\d,]+\.\d{2}\)|[\d,]+\.\d{2})\s*$/;
+// "CCY CONVERSION FEE" lines print two SGD figures (reference amount, then the actual
+// fee) with no gap between them in concatenated PDFs — e.g. "...SGD5.980.05" is really
+// "5.98" + "0.05". The generic CONCAT_TX_RE lazily grabs the last 2 digits before any
+// "." and can straddle both numbers (e.g. mis-reads it as "980.05"), so this anchored
+// two-number pattern is required to split the fee out correctly.
+const CCY_FEE_DOUBLE_AMOUNT_RE = /CCYCONVERSIONFEESGD([\d,]+\.\d{2})([\d,]+\.\d{2})\s*$/i;
 const CONCAT_SKIP_RE = /^(BALANCEPREVIOUSSTATEMENT|TRANSACTIONSFORCITI|ALLTRANSACTIONS|SUB-TOTAL|GRANDTOTAL)/i;
 const CONCAT_PAYMENT_RE = /FASTINCOMINGPAYMENT/i;
 
@@ -64,7 +70,8 @@ function parseCitiCreditConcat(text: string, filename: string): ExpenseTransacti
 
     const description = rawDesc.replace(/[A-Z]{2}$/, '').trim() || rawDesc.trim();
     const isCredit = isCreditFromParens(amountRaw);
-    const amount = parseAmount(amountRaw);
+    const ccyFeeMatch = CCY_FEE_DOUBLE_AMOUNT_RE.exec(line);
+    const amount = ccyFeeMatch ? parseAmount(ccyFeeMatch[2]) : parseAmount(amountRaw);
     const category = description.toUpperCase().includes('CCYCONVERSIONFEE') ? 'Bank Charges' : 'Other';
 
     const nominal = parseDDMMM(normalizeConcatDate(dateStr), year);

@@ -97,6 +97,53 @@ describe('parseUOBDeposit', () => {
   });
 });
 
+describe('parseUOBDeposit — foreign-currency (JPY) wallet section', () => {
+  // Real UOB One "FX+" statements print a JPY-denominated sub-account whose own
+  // Withdrawals/Deposits/Balance columns are in JPY, but each foreign debit-card line
+  // also carries the already-converted SGD figure inline (e.g. "SGD 13.51").
+  const text = `
+Account Transaction Details
+One Account 779-XXX-XXX-X
+FX+   761-939-935-1
+DateDescription
+Withdrawals
+JPY
+Deposits
+JPY
+Balance
+JPY
+01 Jun
+BALANCE B/F
+119,994.00
+10 Jun
+Misc DR-Debit Card
+SGD 12.36
+07 JUN 6363 5255635
+KEIHINKYUKODENTETSU JO   KANAGAWAKEN
+JP
+1,530.00118,464.00
+13 Jun
+Misc DR-Debit Card
+SGD 13.51
+08 JUN 6363 2565805
+SEVEN-ELEVEN             TOKYO        JP
+1,672.00115,572.00
+United Overseas Bank Limited
+`;
+
+  const result = parseUOBDeposit(text, 'eStatement.pdf');
+
+  it('uses the printed SGD equivalent, not the JPY figure, as amount', () => {
+    expect(result).toHaveLength(2);
+    expect(result[0].amount).toBe(12.36);
+    expect(result[1].amount).toBe(13.51);
+  });
+
+  it('does not leak the SGD line into the description twice', () => {
+    expect(result[1].description).toContain('SEVEN-ELEVEN');
+  });
+});
+
 describe('parseUOBDeposit — year boundary', () => {
   const decText = `
 Period: 01 Dec 2025 to 01 Jan 2026

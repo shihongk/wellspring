@@ -5,6 +5,9 @@ const DATE_ANCHOR = /^\d{2}\s+[A-Z][a-z]{2}$/;
 const FLOAT_RE = /^[\d,]+\.\d{2}$/;
 const CONCAT_FLOATS = /^([\d,]+\.\d{2})([\d,]+\.\d{2})\s*$/;
 const REF_LINE = /^x+\d+$/i;
+// Foreign-currency wallet sub-accounts (JPY, USD, ...) print both the local-currency
+// figure and this SGD-converted reference — prefer it over the local-currency float.
+const SGD_EQUIVALENT = /^SGD\s+([\d,]+\.\d{2})$/;
 const BALANCE_BF = /^BALANCE\s+B\/F$/i;
 const FOOTER = 'United Overseas Bank Limited';
 const SECTION_START = 'Account Transaction Details';
@@ -111,6 +114,13 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
       balance = parseAmount(floats[floats.length - 1]);
       amount = parseAmount(floats[floats.length - 2]);
       usedConcat = false;
+    }
+
+    // Foreign-currency section (e.g. JPY wallet) — the concat/float logic above just
+    // captured local-currency figures; use the printed SGD equivalent instead.
+    const sgdLine = rest.find(l => SGD_EQUIVALENT.test(l));
+    if (sgdLine) {
+      amount = parseAmount(SGD_EQUIVALENT.exec(sgdLine)![1]);
     }
 
     const descLines = rest.filter(l =>

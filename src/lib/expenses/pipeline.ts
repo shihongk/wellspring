@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, mkdirSync, renameSync, writeFileSync } from 'fs';
+import { readdirSync, readFileSync, mkdirSync, renameSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import pdfParse from 'pdf-parse';
 import { ExpenseTransaction } from '@/types';
@@ -53,11 +53,22 @@ function dispatch(type: string, text: string, filename: string): ExpenseTransact
   }
 }
 
+// `folder` is the staging root containing sibling Pending/ and Processed/ dirs
+// (not Pending itself) — otherwise Processed ends up nested inside Pending.
 export async function importStatements(folder: string): Promise<ImportResult> {
-  const files = readdirSync(folder)
+  const pendingDir = join(folder, 'Pending');
+  const processedDir = join(folder, 'Processed');
+
+  // Validate before creating anything — a wrong path (e.g. pointing at Pending/
+  // itself instead of its parent) must fail cleanly, not leave a stray Processed/
+  // nested one level too deep.
+  if (!existsSync(pendingDir)) {
+    throw new Error(`No "Pending" folder found inside ${folder} — pass the Statements folder itself, not Statements/Pending.`);
+  }
+
+  const files = readdirSync(pendingDir)
     .filter((f): f is string => typeof f === 'string' && f.toLowerCase().endsWith('.pdf'));
 
-  const processedDir = join(folder, 'Processed');
   mkdirSync(processedDir, { recursive: true });
 
   const [existingIds, userRules, cpfTxKeys] = await Promise.all([
@@ -73,7 +84,7 @@ export async function importStatements(folder: string): Promise<ImportResult> {
   const fileResults: FileResult[] = [];
 
   for (const filename of files) {
-    const filePath = join(folder, filename);
+    const filePath = join(pendingDir, filename);
     const fileResult: FileResult = { file: filename, type: 'unknown', parsed: 0, newRows: 0, duplicates: 0, moved: false };
 
     try {

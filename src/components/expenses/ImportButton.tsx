@@ -67,7 +67,7 @@ export function ImportButton() {
           type="text"
           value={folder}
           onChange={e => saveFolder(e.target.value)}
-          placeholder="/path/to/Pending"
+          placeholder="/path/to/Statements"
           className="flex-1 px-3 py-2 rounded-md text-sm border border-slate-300 bg-white font-mono"
         />
         <button

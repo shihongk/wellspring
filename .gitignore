@@ -39,4 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-\n# Claude settings\n.claude/\n\n# Tesseract OCR data\neng.traineddata\n
+# Claude settings
+.claude/
+
+# Tesseract OCR data
+eng.traineddata
+

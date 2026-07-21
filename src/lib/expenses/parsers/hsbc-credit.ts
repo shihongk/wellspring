@@ -93,6 +93,10 @@ export function parseHSBCCredit(text: string, filename: string): ExpenseTransact
     const amountRaw = amountMatch[1];
     const description = rest.slice(0, amountMatch.index).trim();
     if (!description) continue;
+    // "CREDIT LIMIT AND INTEREST RATES" is a sidebar box next to the transaction table;
+    // OCR sometimes interleaves it onto a transaction row, replacing the real merchant/amount
+    // with the credit limit figure. Unrecoverable — drop rather than store a bogus amount.
+    if (/Credit\s+Limit|Available\s+Credit|Interest\s+Rate/i.test(description)) continue;
 
     const isCredit = isCreditFromSuffix(amountRaw);
     const amount = parseAmount(amountRaw);

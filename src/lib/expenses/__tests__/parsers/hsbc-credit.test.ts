@@ -89,6 +89,34 @@ Statement Date 28 Apr 2026
   });
 });
 
+describe('parseHSBCCredit — sidebar bleed onto a transaction row is dropped, not stored', () => {
+  // Real OCR: "CREDIT LIMIT AND INTEREST RATES" sidebar box bleeds onto a transaction
+  // row in the two-column layout, replacing the real merchant/amount with the credit
+  // limit figure — must be dropped, not stored as a bogus multi-thousand-dollar txn.
+  const text = `
+HSBC REVOLUTION Visa Credit Card 2026
+
+Statement Date 27 Jun 2026
+
+04 Jun 03 Jun GIANT PIONEER MALL Singapore 14.35
+CREDIT LIMIT AND INTEREST RATES
+05Jun 04 Jun Nntydviciusiodl 200 Credit Limit (SGD) 16,100.00
+08Jun 05Jun SUKIYA JURONG POINT 10.80
+`;
+
+  const result = parseHSBCCredit(text, '2026-06-27_Statement.pdf');
+
+  it('does not produce a transaction for the credit limit figure', () => {
+    expect(result.some(t => t.amount === 16100)).toBe(false);
+    expect(result.some(t => /Credit Limit/i.test(t.description))).toBe(false);
+  });
+
+  it('real transactions before and after are unaffected', () => {
+    expect(result.some(t => t.description.includes('GIANT PIONEER MALL') && t.amount === 14.35)).toBe(true);
+    expect(result.some(t => t.description.includes('SUKIYA') && t.amount === 10.8)).toBe(true);
+  });
+});
+
 describe('parseHSBCCredit — multi-line OCR group', () => {
   const text = `
 HSBC Premier 2026

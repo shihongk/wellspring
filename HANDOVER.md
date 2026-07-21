@@ -6,6 +6,25 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.8.1 (2026-07-21)
+
+Patch release. Audited the expense import pipeline after spotting a garbage HSBC transaction; found and fixed a cluster of related OCR-parsing bugs, then did a full-sheet balance-continuity sweep to catch anything similar. See `PLAN.md` § v0.8.1 for the full changelog. Summary:
+
+- **`hsbc-composite.ts`** — fixed same-day transactions merging into one row, page-break boilerplate (disclaimer/letterhead/name/column-headers) leaking into descriptions, bogus `CLOSING BALANCE`/`Transaction Turnover` rows being parsed as transactions, content sharing a date-anchor line being dropped, and HSBC logo OCR garble (`Wh. HSBC pd Premier`) leaking through.
+- **`uob-deposit.ts`** — foreign-currency (JPY) wallet transactions now use the printed SGD-equivalent instead of the raw foreign amount.
+- **`citi-credit.ts`** — `CCY CONVERSION FEE` lines in concatenated PDFs now split correctly into their two figures.
+- **`hsbc-credit.ts`** — `CREDIT LIMIT AND INTEREST RATES` sidebar no longer bleeds onto a transaction row.
+- **`pipeline.ts`** — `importStatements(folder)` now reliably reads `folder/Pending` and writes `folder/Processed` as siblings; fails cleanly (no stray folder) if `Pending/` is missing.
+- **New categories:** Insurance, Personal Care, Electronics, Sports.
+- **Data:** all 7 HSBC Savings statements (Jan–Jul 2026) reimported with the fixed parser; several additional OCR digit-misreads found and hand-corrected via balance-continuity checks against the real PDFs.
+- **Tests:** 165/165 passing.
+
+Statement staging folders moved: `4. Personal/Financial Planning/Statements/{Pending,Processed}` (was `Financial Planning/Pending` before the folder reorg — see `HANDOVER.md` history below for the old path, now stale).
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog — notably a proposal to automate the balance-continuity check this session did manually, and an "exclusion rules" feature for recurring transactions like the $1 HSBC verification transfers.
+
+---
+
 ## Retirement Projection Fixes (2026-05-09)
 
 ### Starting portfolio value — history-based
@@ -306,8 +325,9 @@ Column `excluded` is new (2026-05-03). Existing rows without it read as `false`.
 
 **Import via CLI:**
 ```bash
-npx tsx scripts/import-statements.ts '/Users/shihong/Documents/Claude/Financial Planning'
+npx tsx scripts/import-statements.ts '/Users/shihong/Documents/Claude/4. Personal/Financial Planning/Statements'
 ```
+The folder passed must contain sibling `Pending/` (source PDFs) and `Processed/` (destination) directories — passing `Pending/` itself nests `Processed/` inside it instead of alongside.
 
 **Import via UI:** Visit `/expenses` → Import Statements button.
 

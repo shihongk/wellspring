@@ -12,7 +12,43 @@
 | v0.5 | 2026-05-03 | ✅ Complete |
 | v0.6 | 2026-05-04 | ✅ Complete |
 | v0.7 | 2026-05-06 | ✅ Complete |
-| v0.8 | 2026-05-07 | 🔄 In progress |
+| v0.8 | 2026-05-07 | ✅ Complete |
+| v0.8.1 | 2026-07-21 | ✅ Complete |
+
+---
+
+## v0.8.1 — Expense Import Bug Fixes (Complete)
+
+Patch release fixing multiple OCR-parsing and data-integrity bugs found while auditing HSBC composite statement imports, plus 4 new expense categories.
+
+### Changes shipped
+
+**Parser fixes — `hsbc-composite.ts`:**
+- Multi-transaction date grouping — HSBC only prints the date once per day; multiple same-day transactions were being merged into one row (only the last transaction's amount survived, the rest silently lost)
+- Page-break boilerplate filtering — disclaimer text, branch letterhead, name/address block, "Statement Details" box, repeated "EVERYDAY GLOBAL ACC" header, and column headers no longer leak into transaction descriptions
+- "CLOSING BALANCE" / "Transaction Turnover" / "Transaction Count" end-of-account summary rows no longer parsed as bogus transactions
+- Date-anchor line content preservation — real transaction content sharing a line with the date anchor (e.g. `11May2026 |TO 4835 8500 2021 9896`) is no longer silently dropped
+- HSBC logo/letterhead OCR garble (`Wh. HSBC pd Premier`, `X) Premier`) filtered from descriptions
+
+**Parser fixes — `uob-deposit.ts`:**
+- Foreign-currency wallet sub-accounts (e.g. JPY) now use the printed SGD-equivalent figure instead of the raw foreign-currency amount
+
+**Parser fixes — `citi-credit.ts`:**
+- `CCY CONVERSION FEE` lines in concatenated (no-space) PDFs now correctly split into their two constituent figures (reference amount + actual fee) instead of mis-parsing a merged digit run
+
+**Parser fixes — `hsbc-credit.ts`:**
+- `CREDIT LIMIT AND INTEREST RATES` sidebar box no longer bleeds onto a transaction row, replacing its real amount with the card's credit limit figure
+
+**Import pipeline — `pipeline.ts`:**
+- `importStatements(folder)` now consistently reads from `folder/Pending` and writes to `folder/Processed` as siblings, instead of nesting `Processed` inside whatever path was passed
+- Validates `Pending/` exists before creating anything, so a wrong path fails cleanly instead of leaving a stray folder
+
+**New categories:** Insurance, Personal Care, Electronics, Sports — added to the taxonomy, category dropdown, donut colors, and projection subgroup mapping; built-in rules added for common merchants where known (FWD, AIA, Prudential, etc. for Insurance; Courts, Harvey Norman, Challenger, Gain City, Best Denki for Electronics)
+
+**Data corrections:** Deleted and reimported all 7 HSBC Savings composite statements (Jan–Jul 2026) with the fixed parser; manually corrected ~8 additional OCR digit-misreads found via balance-continuity verification (each row's balance should equal prior ± amount) and cross-checked against the actual statement PDF page images; corrected 2 JPY-wallet amounts, 2 CCY conversion fee amounts, and deleted 1 bogus credit-limit transaction
+
+### Tests
+165/165 passing (up from 145 at session start).
 
 ---
 
@@ -162,12 +198,12 @@ New route `POST /api/setup/migrate-cpf-transactions` — adds `CpfTransactions` 
 
 ### Phase checklist
 
-- [ ] **Phase 1 — Types & schema:** `CpfTransaction` type, `CPF_TRANSACTIONS` constant, provision + migrate route
-- [ ] **Phase 2 — Parser:** `parseCpfTransactions` in `cpf-annual.ts`
-- [ ] **Phase 3 — Data layer:** `getCpfTransactionKeys`, `appendCpfTransactions`, `getCpfTransactions` in `retirement/sheets.ts`
-- [~] **Phase 4 — Pipeline:** `cpfImported` counter + `cpf-annual` routing done; `appendCpfTransactions` call not wired yet (Phase 3 must land first)
-- [ ] **Phase 5 — Projection fixes:** HDB deduction + MediSave deduction in `projectCpfYear`; add constants
-- [~] **Phase 6 — UI:** `<CpfPanel>` imported in `ExpensesClient` but above tab bar; CPF tab not yet added; transaction list, tab restructure, and page fetch not done
+- [x] **Phase 1 — Types & schema:** `CpfTransaction` type, `CPF_TRANSACTIONS` constant, provision + migrate route
+- [x] **Phase 2 — Parser:** `parseCpfTransactions` in `cpf-annual.ts`
+- [x] **Phase 3 — Data layer:** `getCpfTransactionKeys`, `appendCpfTransactions`, `getCpfTransactions` in `retirement/sheets.ts`
+- [x] **Phase 4 — Pipeline:** `appendCpfTransactions` wired into `pipeline.ts` for `cpf-annual` statements
+- [x] **Phase 5 — Projection fixes:** HDB deduction + MediSave deduction in `projectCpfYear`; constants added
+- [x] **Phase 6 — UI:** `CpfTransactionList` component created; `ExpensesClient` restructured with dedicated CPF tab; `page.tsx` fetches and passes transactions down
 
 ---
 

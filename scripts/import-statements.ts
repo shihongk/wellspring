@@ -11,6 +11,7 @@ async function run() {
   if (!folder) {
     console.error('Usage: npx tsx scripts/import-statements.ts <folder>');
     console.error('       or set STATEMENTS_FOLDER in .env.local');
+    console.error('       <folder> must contain Pending/ (source PDFs) and Processed/ (destination) as siblings');
     process.exit(1);
   }
 

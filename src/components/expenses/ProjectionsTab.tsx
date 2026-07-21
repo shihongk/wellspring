@@ -31,8 +31,10 @@ const EXPENSE_SUBGROUP_MAP: Record<string, string> = {
   'Mortgage': 'Living', 'Transport': 'Living', 'Utilities': 'Living',
   'Books & Stationery': 'Lifestyle', 'Entertainment': 'Lifestyle',
   'Home Improvement': 'Lifestyle', 'Shopping': 'Lifestyle',
-  'Subscriptions': 'Lifestyle', 'Travel': 'Lifestyle',
+  'Subscriptions': 'Lifestyle', 'Travel': 'Lifestyle', 'Personal Care': 'Lifestyle',
+  'Electronics': 'Lifestyle', 'Sports': 'Lifestyle',
   'Bank Charges': 'Financial', 'Fees & Charges': 'Financial', 'Tax': 'Financial',
+  'Insurance': 'Financial',
 };
 const SUBGROUP_ORDER = ['Living', 'Lifestyle', 'Financial', 'Other'] as const;
 

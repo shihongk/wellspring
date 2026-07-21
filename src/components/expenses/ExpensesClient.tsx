@@ -90,6 +90,10 @@ const CAT_COLOR: Record<string, string> = {
   'Tax':              '#EF476F',
   'Mortgage':         '#E07A5F',
   'Home Improvement': '#118AB2',
+  'Insurance':        '#2A9D8F',
+  'Personal Care':    '#F4A261',
+  'Electronics':      '#3A86FF',
+  'Sports':           '#588157',
   'Bank Charges':     '#94A3B8',
   'Fees & Charges':   '#F43F5E',
   'Books & Stationery': '#D946EF',
@@ -167,7 +171,7 @@ function DonutChart({ slices, selected, onSelect, centerText }: {
 // ─── category dropdown ────────────────────────────────────────────────────────
 
 const CATEGORY_GROUPS = [
-  { label: 'Spending', options: ['Bank Charges','Books & Stationery','Entertainment','Fees & Charges','Food & Drink','Groceries','Healthcare','Home Improvement','Investment','Mortgage','Shopping','Subscriptions','Tax','Transport','Travel','Utilities'] },
+  { label: 'Spending', options: ['Bank Charges','Books & Stationery','Electronics','Entertainment','Fees & Charges','Food & Drink','Groceries','Healthcare','Home Improvement','Insurance','Investment','Mortgage','Personal Care','Shopping','Sports','Subscriptions','Tax','Transport','Travel','Utilities'] },
   { label: 'Income',   options: ['Income','Interest','Other Income','Salary'] },
   { label: 'Other',    options: ['Other','Transfer'] },
 ] satisfies { label: string; options: (typeof EXPENSE_CATEGORIES[number])[] }[];

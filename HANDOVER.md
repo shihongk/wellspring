@@ -6,6 +6,14 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.9.2 (2026-07-22)
+
+Patch release. `Electronics`, `Insurance`, `Personal Care`, `Sports` (added v0.8.1/v0.9) had no case in `ExpensesClient.tsx`'s `getCategoryIconAndColor`, so they fell through to the generic "Other" `HelpCircle` icon. Added `Cpu`/violet, `ShieldCheck`/green, `Sparkles`/stone, `Dumbbell`/zinc respectively. Verified live for Electronics and Insurance (both have transactions in the current data range); Personal Care and Sports use the identical code path but have no transactions yet.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
 ## Current State — v0.9.1 (2026-07-22)
 
 Patch release fixing two bugs in the "Create Rule" flow, found while debugging a report that saving a rule didn't visibly update the category on the transaction that triggered it.

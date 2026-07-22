@@ -16,6 +16,20 @@
 | v0.8.1 | 2026-07-21 | ✅ Complete |
 | v0.9 | 2026-07-21 | ✅ Complete |
 | v0.9.1 | 2026-07-22 | ✅ Complete |
+| v0.9.2 | 2026-07-22 | ✅ Complete |
+
+---
+
+## v0.9.2 — Category Icons (Complete)
+
+Patch release. Four categories added in v0.8.1/v0.9 (`Electronics`, `Insurance`, `Personal Care`, `Sports`) had no dedicated icon in `ExpensesClient.tsx`'s `getCategoryIconAndColor`, so they rendered with the generic "Other" `HelpCircle` icon in the donut chart and transaction list.
+
+### Changes shipped
+
+- **`ExpensesClient.tsx`** — added `Cpu` (Electronics, violet), `ShieldCheck` (Insurance, green), `Sparkles` (Personal Care, stone), `Dumbbell` (Sports, zinc) cases.
+
+### Tests
+208/208 passing (unchanged — icon mapping has no test coverage). Verified live: Electronics and Insurance render correctly (both have transactions this data range); Personal Care and Sports use the identical code path but have no transactions yet to visually confirm against.
 
 ---
 

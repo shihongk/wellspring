@@ -19,7 +19,7 @@ import { CpfTransactionList } from './CpfTransactionList';
 import {
   Utensils, TrainFront, ShoppingCart, ShoppingBag, HeartPulse, Ticket, Plane,
   Lightbulb, Repeat, TrendingUp, FileText, Home, Hammer, Landmark, Wallet, Coins, PiggyBank, ArrowRightLeft, HelpCircle, LucideIcon, Calendar,
-  Receipt, BookOpen
+  Receipt, BookOpen, Cpu, ShieldCheck, Sparkles, Dumbbell
 } from 'lucide-react';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -81,6 +81,10 @@ function getCategoryIconAndColor(cat: string): { Icon: LucideIcon, bg: string, t
     case 'Bank Charges': return { Icon: Landmark, bg: 'bg-slate-100', text: 'text-slate-600' };
     case 'Fees & Charges': return { Icon: Receipt, bg: 'bg-rose-50', text: 'text-rose-600' };
     case 'Books & Stationery': return { Icon: BookOpen, bg: 'bg-fuchsia-50', text: 'text-fuchsia-600' };
+    case 'Electronics': return { Icon: Cpu, bg: 'bg-violet-50', text: 'text-violet-600' };
+    case 'Insurance': return { Icon: ShieldCheck, bg: 'bg-green-50', text: 'text-green-600' };
+    case 'Personal Care': return { Icon: Sparkles, bg: 'bg-stone-50', text: 'text-stone-600' };
+    case 'Sports': return { Icon: Dumbbell, bg: 'bg-zinc-50', text: 'text-zinc-600' };
     case 'Salary': return { Icon: Wallet, bg: 'bg-emerald-50', text: 'text-emerald-600' };
     case 'Interest': return { Icon: Coins, bg: 'bg-blue-50', text: 'text-blue-600' };
     case 'Other Income': return { Icon: PiggyBank, bg: 'bg-lime-50', text: 'text-lime-600' };

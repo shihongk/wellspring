@@ -14,6 +14,35 @@
 | v0.7 | 2026-05-06 | ✅ Complete |
 | v0.8 | 2026-05-07 | ✅ Complete |
 | v0.8.1 | 2026-07-21 | ✅ Complete |
+| v0.9 | 2026-07-21 | ✅ Complete |
+
+---
+
+## v0.9 — Expense Data Integrity + Rules Engine
+
+### Objective
+
+Three phases, risk-ordered. Full task specs in `tasks/v0.9-phase*.md`.
+
+1. **Balance-continuity validation** — automate the manual OCR-integrity check from the v0.8.1 debugging session: after any import (and on demand), flag rows where `balance != prevBalance ± amount`.
+2. **Extended rules engine** — generalize `ExpenseRules` from `merchant → category` to structured match (description-contains + optional account / exact amount / direction) → action (set category and/or exclude). Subsumes four backlog items: CC bill payments counted as income, richer built-in rules, self-transfer double-counting, recurring-exclusion rules ($1 HSBC `OTHR` verification transfers). Plus a "Hide transfers" filter (default on) in the income/spending views.
+3. **Retirement wiring** — replace hardcoded `initialGrossMonthlySalary={9000}` / `initialNetMonthlyCashFlow={3000}` in `retirement/page.tsx`: gross salary derived from recent CPF `CON` transactions ÷ contribution rate; net cash flow derived from the expense projection engine. Manual overrides stay.
+
+### Decisions (2026-07-21)
+
+- Rule matching stays structured fields, no regex — extend the existing per-row rule-creation flow, don't build a new one.
+- Gross salary from CPF contributions (ceiling-capped is fine — the projection only uses gross to compute CPF contributions, which are capped anyway).
+- CPF statement upload backlog item was stale — already shipped in v0.7/v0.8 (`cpf-annual.ts`).
+
+### Checklist
+
+- [x] Phase 1 — balance-continuity validation (`tasks/v0.9-phase1-balance-validation.md`)
+- [x] Phase 2 — extended rules engine (`tasks/v0.9-phase2-rules-engine.md`)
+- [x] Phase 3 — retirement wiring (`tasks/v0.9-phase3-retirement-wiring.md`)
+
+### v0.10 (parked, direction agreed)
+
+Margin financing: model margin as a cash account allowed to go negative (e.g. "IBKR Margin"); reframe "All-time Return" against net contributed capital (deposits − withdrawals, excluding margin proceeds). Open design question: Cash sheet holds balances, not flows — contributed capital needs deposit/withdrawal events. Design pass before build.
 
 ---
 

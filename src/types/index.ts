@@ -99,8 +99,22 @@ export interface ExpenseTransaction {
 }
 
 export interface ExpenseRule {
-  merchant: string; // case-insensitive substring match
-  category: string;
+  merchant: string;                  // case-insensitive substring match on description
+  category?: string;                 // action: set category (optional now)
+  account?: string;                  // match: exact account name
+  amount?: number;                   // match: exact amount (±0.005)
+  direction?: 'debit' | 'credit';    // match
+  exclude?: boolean;                 // action: set excluded=true
+}
+
+export interface BalanceContinuityIssue {
+  account: string;
+  id: string;          // offending transaction id
+  date: string;
+  description: string;
+  expectedBalance: number;  // prevBalance ± amount
+  actualBalance: number;
+  prevId: string;      // transaction the expectation was computed from
 }
 
 export interface ExpenseProjectionOverride {

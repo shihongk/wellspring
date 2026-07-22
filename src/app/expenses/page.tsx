@@ -1,5 +1,6 @@
 import { getExpenses, getExpenseRules, getProjectionOverrides } from '@/lib/expenses/sheets';
 import { getLatestCpfBalance, getCpfTransactions } from '@/lib/retirement/sheets';
+import { deriveGrossMonthlySalary } from '@/lib/retirement/salary';
 import { ExpensesClient } from '@/components/expenses/ExpensesClient';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,7 @@ export default async function ExpensesPage() {
   ]);
 
   const userAge = new Date().getFullYear() - 1984;
+  const derivedGrossMonthlySalary = deriveGrossMonthlySalary(cpfTransactions, userAge);
 
   return (
     <main className="ml-48 p-8 min-h-screen" style={{ backgroundColor: '#f0f9ff' }}>
@@ -21,6 +23,7 @@ export default async function ExpensesPage() {
         cpfBalance={cpfBalance}
         cpfTransactions={cpfTransactions}
         userAge={userAge}
+        grossMonthlySalary={derivedGrossMonthlySalary ?? 9000}
       />
     </main>
   );

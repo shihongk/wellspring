@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
+import { ruleMatches } from './categorize';
 
 function getSheetsClient() {
   const {
@@ -102,14 +103,21 @@ export async function getExpenseRules(): Promise<ExpenseRule[]> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.EXPENSE_RULES}!A:B`,
+    range: `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
   });
 
   const rows = res.data.values ?? [];
   if (rows.length <= 1) return [];
   return rows.slice(1)
-    .filter(row => row[0] && row[1])
-    .map(row => ({ merchant: row[0], category: row[1] }));
+    .filter(row => row[0] && (row[1] || row[5] === 'true'))
+    .map(row => ({
+      merchant: row[0],
+      ...(row[1] ? { category: row[1] } : {}),
+      ...(row[2] ? { account: row[2] } : {}),
+      ...(row[3] ? { amount: parseFloat(row[3]) } : {}),
+      ...(row[4] === 'debit' || row[4] === 'credit' ? { direction: row[4] as 'debit' | 'credit' } : {}),
+      ...(row[5] === 'true' ? { exclude: true } : {}),
+    }));
 }
 
 export async function updateExpenseCategory(id: string, category: string): Promise<void> {
@@ -150,22 +158,25 @@ export async function updateExpenseExcluded(id: string, excluded: boolean): Prom
   });
 }
 
-export async function applyRuleToExisting(merchant: string, category: string): Promise<void> {
+export async function applyRuleToExisting(rule: ExpenseRule): Promise<void> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.EXPENSES}!A:I`,
+    range: `${SHEET_NAMES.EXPENSES}!A:M`,
   });
 
   const rows = res.data.values ?? [];
-  const upper = merchant.toUpperCase();
+  const updates: Array<{ range: string; values: string[][] }> = [];
 
-  const updates: Array<{ rowNum: number }> = [];
   for (let i = 1; i < rows.length; i++) {
-    const desc = (rows[i][3] ?? '').toUpperCase();
-    const cat = rows[i][8] ?? '';
-    if (desc.includes(upper) && cat === 'Other') {
-      updates.push({ rowNum: i + 1 });
+    const tx = rowToTransaction(rows[i]);
+    if (!ruleMatches(tx, rule)) continue;
+
+    if (rule.category && tx.category === 'Other') {
+      updates.push({ range: `${SHEET_NAMES.EXPENSES}!I${i + 1}`, values: [[rule.category]] });
+    }
+    if (rule.exclude && !tx.excluded) {
+      updates.push({ range: `${SHEET_NAMES.EXPENSES}!L${i + 1}`, values: [['true']] });
     }
   }
 
@@ -173,13 +184,7 @@ export async function applyRuleToExisting(merchant: string, category: string): P
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    requestBody: {
-      valueInputOption: 'RAW',
-      data: updates.map(({ rowNum }) => ({
-        range: `${SHEET_NAMES.EXPENSES}!I${rowNum}`,
-        values: [[category]],
-      })),
-    },
+    requestBody: { valueInputOption: 'RAW', data: updates },
   });
 }
 
@@ -315,26 +320,33 @@ export async function upsertExpenseRule(rule: ExpenseRule): Promise<void> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.EXPENSE_RULES}!A:B`,
+    range: `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
   });
 
   const rows = res.data.values ?? [];
   const rowIndex = rows.findIndex(
     r => r[0]?.toLowerCase() === rule.merchant.toLowerCase(),
   );
-  const rowData = [rule.merchant, rule.category];
+  const rowData = [
+    rule.merchant,
+    rule.category ?? '',
+    rule.account ?? '',
+    rule.amount != null ? rule.amount.toString() : '',
+    rule.direction ?? '',
+    rule.exclude ? 'true' : '',
+  ];
 
   if (rowIndex >= 1) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SHEET_NAMES.EXPENSE_RULES}!A${rowIndex + 1}:B${rowIndex + 1}`,
+      range: `${SHEET_NAMES.EXPENSE_RULES}!A${rowIndex + 1}:F${rowIndex + 1}`,
       valueInputOption: 'RAW',
       requestBody: { values: [rowData] },
     });
   } else {
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${SHEET_NAMES.EXPENSE_RULES}!A:B`,
+      range: `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
       valueInputOption: 'RAW',
       requestBody: { values: [rowData] },
     });

@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync, mkdirSync, renameSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import pdfParse from 'pdf-parse';
-import { ExpenseTransaction } from '@/types';
+import { ExpenseTransaction, BalanceContinuityIssue } from '@/types';
 import { detectStatementType } from './detect';
-import { categorize } from './categorize';
-import { getExpenseIds, getExpenseRules, appendExpenses } from './sheets';
+import { applyRules } from './categorize';
+import { getExpenseIds, getExpenseRules, appendExpenses, getExpenses } from './sheets';
 import { upsertCpfBalance, getCpfTransactionKeys, appendCpfTransactions } from '@/lib/retirement/sheets';
+import { validateBalanceContinuity } from './validate';
 import { ocrPdf } from './parsers/ocr-utils';
 import { parseCpfAnnual, parseCpfTransactions } from './parsers/cpf-annual';
 import { parseUOBDeposit } from './parsers/uob-deposit';
@@ -31,6 +32,7 @@ export interface ImportResult {
   cpfImported: number;
   errors: { file: string; message: string }[];
   files: FileResult[];
+  continuityIssues: BalanceContinuityIssue[];
 }
 
 async function extractText(filePath: string): Promise<string> {
@@ -112,10 +114,12 @@ export async function importStatements(folder: string): Promise<ImportResult> {
       fileResult.parsed = txs.length;
 
       for (const tx of txs) {
+        const { category, excluded } = applyRules(tx, userRules);
         // Preserve parser-assigned categories (e.g. Bank Charges from Citi CCY fee)
         if (tx.category === 'Other') {
-          tx.category = categorize(tx.description, userRules);
+          tx.category = category;
         }
+        tx.excluded = excluded;
 
         if (existingIds.has(tx.id)) {
           skipped++;
@@ -141,6 +145,19 @@ export async function importStatements(folder: string): Promise<ImportResult> {
 
   await appendExpenses(newRows);
 
+  // Re-check balance continuity for the accounts just touched, scoped to issues
+  // that involve a newly-imported row so pre-existing issues aren't re-reported
+  // on every subsequent import.
+  let continuityIssues: BalanceContinuityIssue[] = [];
+  if (newRows.length > 0) {
+    const newRowIds = new Set(newRows.map(tx => tx.id));
+    const newRowAccounts = new Set(newRows.map(tx => tx.account));
+    const allTxs = await getExpenses();
+    const relevantTxs = allTxs.filter(tx => newRowAccounts.has(tx.account));
+    continuityIssues = validateBalanceContinuity(relevantTxs)
+      .filter(issue => newRowIds.has(issue.id) || newRowIds.has(issue.prevId));
+  }
+
   // Write log
   const logLines = fileResults.map(r => {
     const status = r.error ? `ERROR: ${r.error}`
@@ -148,7 +165,10 @@ export async function importStatements(folder: string): Promise<ImportResult> {
       : `OK: ${r.parsed} parsed, ${r.newRows} new, ${r.duplicates} duplicates`;
     return `${r.file}: ${status}`;
   });
-  writeFileSync(join(folder, 'import.log'), logLines.join('\n') + '\n');
+  const continuityLines = continuityIssues.map(issue =>
+    `CONTINUITY: ${issue.account} ${issue.date} "${issue.description}" expected ${issue.expectedBalance.toFixed(2)} got ${issue.actualBalance.toFixed(2)}`
+  );
+  writeFileSync(join(folder, 'import.log'), [...logLines, ...continuityLines].join('\n') + '\n');
 
-  return { imported: newRows.length, skipped, cpfImported, errors, files: fileResults };
+  return { imported: newRows.length, skipped, cpfImported, errors, files: fileResults, continuityIssues };
 }

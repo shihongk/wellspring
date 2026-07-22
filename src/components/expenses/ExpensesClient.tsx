@@ -12,6 +12,7 @@ import {
   bulkUpdateCategoryAction,
 } from '@/app/lib/actions';
 import { ImportButton } from './ImportButton';
+import { ValidateBalancesButton } from './ValidateBalancesButton';
 import { CpfPanel } from './CpfPanel';
 import { CpfTransactionList } from './CpfTransactionList';
 import {
@@ -46,6 +47,18 @@ function groupTxsByDate(txs: ExpenseTransaction[]) {
 }
 
 const ANNUAL_FEE_RE = /ANNUAL.*(MEMBER|FEE)/i;
+
+interface RuleFormState {
+  id: string;
+  merchant: string;
+  category: string;
+  excludeAction: boolean;
+  matchAccount: boolean;
+  account: string;
+  matchAmount: boolean;
+  amount: number;
+  direction: 'debit' | 'credit';
+}
 
 // ─── icon & category colours ──────────────────────────────────────────────────
 
@@ -219,8 +232,8 @@ function TxRow({
   onApplyDismiss: () => void;
   ruleOpen: boolean;
   applyOpen: boolean;
-  ruleForm: { id: string; merchant: string; category: string } | null;
-  setRuleForm: React.Dispatch<React.SetStateAction<{ id: string; merchant: string; category: string } | null>>;
+  ruleForm: RuleFormState | null;
+  setRuleForm: React.Dispatch<React.SetStateAction<RuleFormState | null>>;
   handleSaveRule: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -277,20 +290,42 @@ function TxRow({
           </div>
 
           {ruleOpen && ruleForm && (
-            <div className="flex items-center gap-2 flex-wrap text-xs bg-indigo-50 p-3 rounded-md border border-indigo-100">
-              <span className="text-indigo-700 font-medium">Match description containing:</span>
-              <input
-                value={ruleForm.merchant}
-                onChange={e => setRuleForm(f => f ? { ...f, merchant: e.target.value } : f)}
-                className="border border-indigo-200 rounded px-2 py-1.5 w-52 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-white"
-              />
-              <span className="text-indigo-300">→</span>
-              <CategorySelect
-                value={ruleForm.category}
-                onChange={v => setRuleForm(f => f ? { ...f, category: v } : f)}
-                className="border border-indigo-200 rounded px-1.5 py-1.5 bg-white focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
-              />
-              <button onClick={handleSaveRule} disabled={!ruleForm.merchant.trim()} className="px-3 py-1.5 bg-indigo-600 text-white font-medium rounded hover:bg-indigo-700 disabled:opacity-40 transition-colors ml-auto">Save rule</button>
+            <div className="flex flex-col gap-2.5 text-xs bg-indigo-50 p-3 rounded-md border border-indigo-100">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-indigo-700 font-medium">Match description containing:</span>
+                <input
+                  value={ruleForm.merchant}
+                  onChange={e => setRuleForm(f => f ? { ...f, merchant: e.target.value } : f)}
+                  className="border border-indigo-200 rounded px-2 py-1.5 w-52 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-white"
+                />
+              </div>
+              <div className="flex items-center gap-4 flex-wrap">
+                <label className="flex items-center gap-1.5 cursor-pointer text-indigo-700">
+                  <input type="checkbox" checked={ruleForm.matchAccount} onChange={e => setRuleForm(f => f ? { ...f, matchAccount: e.target.checked } : f)} className="rounded border-indigo-300" />
+                  Only this account ({ruleForm.account})
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer text-indigo-700">
+                  <input type="checkbox" checked={ruleForm.matchAmount} onChange={e => setRuleForm(f => f ? { ...f, matchAmount: e.target.checked } : f)} className="rounded border-indigo-300" />
+                  Only this exact amount ({fmtSGD(ruleForm.amount)})
+                </label>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-1.5 cursor-pointer text-indigo-700">
+                  <input type="checkbox" checked={ruleForm.excludeAction} onChange={e => setRuleForm(f => f ? { ...f, excludeAction: e.target.checked } : f)} className="rounded border-indigo-300" />
+                  Exclude from stats
+                </label>
+                {!ruleForm.excludeAction && (
+                  <>
+                    <span className="text-indigo-300">→</span>
+                    <CategorySelect
+                      value={ruleForm.category}
+                      onChange={v => setRuleForm(f => f ? { ...f, category: v } : f)}
+                      className="border border-indigo-200 rounded px-1.5 py-1.5 bg-white focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+                    />
+                  </>
+                )}
+                <button onClick={handleSaveRule} disabled={!ruleForm.merchant.trim()} className="px-3 py-1.5 bg-indigo-600 text-white font-medium rounded hover:bg-indigo-700 disabled:opacity-40 transition-colors ml-auto">Save rule</button>
+              </div>
             </div>
           )}
 
@@ -340,7 +375,8 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
 
   const [hideExcluded, setHideExcluded] = useState(true);
   const [hideInvestment, setHideInvestment] = useState(true);
-  const [ruleForm, setRuleForm] = useState<{ id: string; merchant: string; category: string } | null>(null);
+  const [hideTransfers, setHideTransfers] = useState(true);
+  const [ruleForm, setRuleForm] = useState<RuleFormState | null>(null);
   const [applyConfirm, setApplyConfirm] = useState<{ triggeredId: string; category: string; matchIds: string[] } | null>(null);
   
   const [tab, setTab] = useState<'spending' | 'income'>('spending');
@@ -363,20 +399,20 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
   }, [transactions, localExcluded]);
 
   const spendingTxs = useMemo(
-    () => filtered.filter(t => t.direction === 'debit' && (!hideExcluded || !isExcluded(t)) && (!hideInvestment || catOf(t) !== 'Investment')),
+    () => filtered.filter(t => t.direction === 'debit' && (!hideExcluded || !isExcluded(t)) && (!hideInvestment || catOf(t) !== 'Investment') && (!hideTransfers || catOf(t) !== 'Transfer')),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtered, hideExcluded, hideInvestment, localExcluded, localCategories],
+    [filtered, hideExcluded, hideInvestment, hideTransfers, localExcluded, localCategories],
   );
-  
+
   const incomeTxs = useMemo(
-    () => filtered.filter(t => t.direction === 'credit' && (!hideExcluded || !isExcluded(t)) && (!hideInvestment || catOf(t) !== 'Investment')),
+    () => filtered.filter(t => t.direction === 'credit' && (!hideExcluded || !isExcluded(t)) && (!hideInvestment || catOf(t) !== 'Investment') && (!hideTransfers || catOf(t) !== 'Transfer')),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtered, hideExcluded, hideInvestment, localExcluded, localCategories],
+    [filtered, hideExcluded, hideInvestment, hideTransfers, localExcluded, localCategories],
   );
 
   // Breakdown for pie chart (non-excluded debits only)
   const breakdown = useMemo(() => {
-    const debits = filtered.filter(t => t.direction === 'debit' && !isExcluded(t) && (!hideInvestment || catOf(t) !== 'Investment'));
+    const debits = filtered.filter(t => t.direction === 'debit' && !isExcluded(t) && (!hideInvestment || catOf(t) !== 'Investment') && (!hideTransfers || catOf(t) !== 'Transfer'));
     const total = debits.reduce((s, t) => s + t.amount, 0);
     const byCat: Record<string, number> = {};
     for (const t of debits) { const c = catOf(t); byCat[c] = (byCat[c] ?? 0) + t.amount; }
@@ -384,11 +420,11 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
       .map(([cat, sum]) => ({ cat, sum, pct: total > 0 ? (sum / total) * 100 : 0 }))
       .sort((a, b) => b.sum - a.sum);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, localCategories, localExcluded, hideInvestment]);
+  }, [filtered, localCategories, localExcluded, hideInvestment, hideTransfers]);
 
   // Breakdown for pie chart (non-excluded credits only)
   const incomeBreakdown = useMemo(() => {
-    const credits = filtered.filter(t => t.direction === 'credit' && !isExcluded(t) && (!hideInvestment || catOf(t) !== 'Investment'));
+    const credits = filtered.filter(t => t.direction === 'credit' && !isExcluded(t) && (!hideInvestment || catOf(t) !== 'Investment') && (!hideTransfers || catOf(t) !== 'Transfer'));
     const total = credits.reduce((s, t) => s + t.amount, 0);
     const byCat: Record<string, number> = {};
     for (const t of credits) { const c = catOf(t); byCat[c] = (byCat[c] ?? 0) + t.amount; }
@@ -396,7 +432,7 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
       .map(([cat, sum]) => ({ cat, sum, pct: total > 0 ? (sum / total) * 100 : 0 }))
       .sort((a, b) => b.sum - a.sum);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, localCategories, localExcluded, hideInvestment]);
+  }, [filtered, localCategories, localExcluded, hideInvestment, hideTransfers]);
 
   const spendingTotal = useMemo(() => breakdown.reduce((s, r) => s + r.sum, 0), [breakdown]);
   const incomeTotal   = useMemo(() => incomeBreakdown.reduce((s, r) => s + r.sum, 0), [incomeBreakdown]);
@@ -453,12 +489,28 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
   function handleOpenRule(tx: ExpenseTransaction) {
     if (ruleForm?.id === tx.id) { setRuleForm(null); return; }
     setApplyConfirm(null);
-    setRuleForm({ id: tx.id, merchant: suggestMerchant(tx.description), category: catOf(tx) });
+    setRuleForm({
+      id: tx.id,
+      merchant: suggestMerchant(tx.description),
+      category: catOf(tx),
+      excludeAction: false,
+      matchAccount: false,
+      account: tx.account,
+      matchAmount: false,
+      amount: tx.amount,
+      direction: tx.direction,
+    });
   }
 
   function handleSaveRule() {
     if (!ruleForm?.merchant.trim()) return;
-    startTransition(() => { createExpenseRuleAction(ruleForm.merchant.trim(), ruleForm.category); });
+    const rule: ExpenseRule = {
+      merchant: ruleForm.merchant.trim(),
+      ...(ruleForm.excludeAction ? { exclude: true } : { category: ruleForm.category }),
+      ...(ruleForm.matchAccount ? { account: ruleForm.account } : {}),
+      ...(ruleForm.matchAmount ? { amount: ruleForm.amount, direction: ruleForm.direction } : {}),
+    };
+    startTransition(() => { createExpenseRuleAction(rule); });
     setRuleForm(null);
   }
 
@@ -488,7 +540,10 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
             Projections
           </button>
         </div>
-        <ImportButton />
+        <div className="flex items-center gap-2">
+          {mainTab === 'transactions' && <ValidateBalancesButton />}
+          <ImportButton />
+        </div>
       </div>
 
       {mainTab === 'cpf' ? (
@@ -543,6 +598,10 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
               <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">
                 <input type="checkbox" checked={hideInvestment} onChange={e => setHideInvestment(e.target.checked)} className="rounded border-slate-300 text-slate-600 focus:ring-slate-500" />
                 Hide investment
+              </label>
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">
+                <input type="checkbox" checked={hideTransfers} onChange={e => setHideTransfers(e.target.checked)} className="rounded border-slate-300 text-slate-600 focus:ring-slate-500" />
+                Hide transfers
               </label>
               <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">
                 <input type="checkbox" checked={hideExcluded} onChange={e => setHideExcluded(e.target.checked)} className="rounded border-slate-300 text-slate-600 focus:ring-slate-500" />

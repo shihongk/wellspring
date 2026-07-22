@@ -1,4 +1,4 @@
-import { Currency } from '@/types';
+import { Currency, ExpenseRule } from '@/types';
 
 export const EQUITY_TICKERS = ['BRK-B', 'JK8.SI', '2823.HK', '2838.HK', 'TSM'] as const;
 export const ALL_TICKERS = [...EQUITY_TICKERS, 'CASH'] as const;
@@ -254,3 +254,12 @@ export const BUILT_IN_RULES: Record<string, string> = {
   'ANNUAL FEE': 'Bank Charges',
   'INTEREST CHARGE': 'Bank Charges',
 };
+
+// Structured rules (match + action beyond a plain merchant→category substring).
+export const BUILT_IN_STRUCTURED_RULES: ExpenseRule[] = [
+  { merchant: 'GIRO PAYMENT', category: 'Transfer' },
+  { merchant: 'AUTOPAY', category: 'Transfer' },
+  { merchant: 'BILL PAYMENT', category: 'Transfer' },
+  { merchant: 'PAYMENT RECEIVED', category: 'Transfer' }, // Amex "PAYMENT RECEIVED" wording
+  { merchant: 'HIB-', amount: 1.00, exclude: true },      // HSBC $1 verification transfers
+];

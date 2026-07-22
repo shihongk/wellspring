@@ -39,6 +39,16 @@ function extractAccount(text: string): string {
   return 'UOB Deposit';
 }
 
+// Scans forward from a "BALANCE B/F" line for its printed balance figure.
+function extractBFBalance(seq: string[], fromIdx: number): number | null {
+  for (let i = fromIdx + 1; i < Math.min(fromIdx + 5, seq.length); i++) {
+    if (FLOAT_RE.test(seq[i])) return parseAmount(seq[i]);
+    const cm = CONCAT_FLOATS.exec(seq[i]);
+    if (cm) return parseAmount(cm[2]);
+  }
+  return null;
+}
+
 export function parseUOBDeposit(text: string, filename: string): ExpenseTransaction[] {
   const year = extractYear(text);
   const endMonth = extractEndMonth(text);
@@ -68,11 +78,8 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
   let prevBalance: number | null = null;
   const bfIdx = lines.findIndex(l => BALANCE_BF.test(l));
   if (bfIdx >= 0) {
-    for (let i = bfIdx + 1; i < Math.min(bfIdx + 5, lines.length); i++) {
-      if (FLOAT_RE.test(lines[i])) { prevBalance = parseAmount(lines[i]); break; }
-      const cm = CONCAT_FLOATS.exec(lines[i]);
-      if (cm) { prevBalance = parseAmount(cm[2]); break; }
-    }
+    const extracted = extractBFBalance(lines, bfIdx);
+    if (extracted !== null) prevBalance = extracted;
   }
 
   // Group lines into transactions by date anchor
@@ -93,8 +100,15 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
   for (const group of groups) {
     const [dateLine, ...rest] = group;
 
-    // Skip BALANCE B/F groups
-    if (rest.some(l => BALANCE_BF.test(l))) continue;
+    // BALANCE B/F groups reseed the delta chain instead of emitting a transaction —
+    // each sub-account section (e.g. a JPY wallet) prints its own opening balance,
+    // so the chain must restart in that section's currency at the boundary.
+    const bfInGroupIdx = rest.findIndex(l => BALANCE_BF.test(l));
+    if (bfInGroupIdx >= 0) {
+      const extracted = extractBFBalance(rest, bfInGroupIdx);
+      if (extracted !== null) prevBalance = extracted;
+      continue;
+    }
 
     // Extract amount + balance — handle both real-PDF (concatenated) and test-fixture (separate lines)
     const lastLine = rest[rest.length - 1] ?? '';
@@ -119,6 +133,7 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
     // Foreign-currency section (e.g. JPY wallet) — the concat/float logic above just
     // captured local-currency figures; use the printed SGD equivalent instead.
     const sgdLine = rest.find(l => SGD_EQUIVALENT.test(l));
+    const isWallet = !!sgdLine;
     if (sgdLine) {
       amount = parseAmount(SGD_EQUIVALENT.exec(sgdLine)![1]);
     }
@@ -135,6 +150,9 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
     const txYear = inferYear(txMonth, endMonth, year);
     const date = txYear !== year ? parseDDMMM(dateLine, txYear) : nominalDate;
 
+    // Direction is computed from the raw (section-currency) balance so JPY wallet
+    // deltas stay internally consistent; only the emitted balance is nulled for wallets
+    // to keep them out of the SGD balance-continuity chain (they're a different ledger).
     const direction = prevBalance !== null ? directionFromDelta(balance, prevBalance) : 'debit';
     prevBalance = balance;
 
@@ -145,7 +163,7 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
       description,
       amount,
       direction,
-      balance,
+      balance: isWallet ? null : balance,
       account,
       category: 'Other',
       sourceFile: filename,

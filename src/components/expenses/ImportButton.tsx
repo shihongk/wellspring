@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { FileResult } from '@/lib/expenses/pipeline';
+import { BalanceContinuityIssue } from '@/types';
 
 const FOLDER_KEY = 'wellspring:statements-folder';
 
@@ -12,6 +13,11 @@ interface DoneData {
   skipped: number;
   cpfImported: number;
   files: FileResult[];
+  continuityIssues: BalanceContinuityIssue[];
+}
+
+function fmtSGD(n: number): string {
+  return 'S$' + n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function ImportButton() {
@@ -89,6 +95,16 @@ export function ImportButton() {
               {f.file}: 0 transactions parsed (type={f.type})
             </span>
           ))}
+          {done.continuityIssues.length > 0 && (
+            <div className="mt-1 flex flex-col gap-0.5">
+              <span className="text-red-600 font-medium">Balance continuity issues:</span>
+              {done.continuityIssues.map(issue => (
+                <span key={issue.id} className="text-red-600 pl-2">
+                  {issue.account} {issue.date} &quot;{issue.description}&quot; — expected {fmtSGD(issue.expectedBalance)}, got {fmtSGD(issue.actualBalance)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {state === 'error' && (

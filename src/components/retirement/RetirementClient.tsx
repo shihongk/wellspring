@@ -126,22 +126,21 @@ export function RetirementClient({
       } catch {}
     }
 
-    // Load expense projection settings (shared with the Expenses tab)
+    // Load expense projection settings (shared with the Expenses tab); defaults apply
+    // even with no saved settings so derived cash flow works on a fresh browser
     try {
       const expSaved = localStorage.getItem('wellspring_projection_settings');
-      if (expSaved) {
-        const p = JSON.parse(expSaved);
-        const now = new Date();
-        const defEnd = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const defStart = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        setExpProjSettings({
-          baselineStart: p.baselineStart ?? fmt(defStart),
-          baselineEnd: p.baselineEnd ?? fmt(defEnd),
-          inflation: p.inflation ?? { expenseInflationRate: 2, incomeGrowthRate: 3 },
-          categoryModes: p.categoryModes ?? {},
-        });
-      }
+      const p = expSaved ? JSON.parse(expSaved) : {};
+      const now = new Date();
+      const defEnd = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const defStart = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      setExpProjSettings({
+        baselineStart: p.baselineStart ?? fmt(defStart),
+        baselineEnd: p.baselineEnd ?? fmt(defEnd),
+        inflation: p.inflation ?? { expenseInflationRate: 2, incomeGrowthRate: 3 },
+        categoryModes: p.categoryModes ?? {},
+      });
     } catch {}
 
     setHasLoaded(true);
@@ -159,30 +158,15 @@ export function RetirementClient({
   const currentAge = currentYear - birthYear;
   const horizonYears = Math.max(10, settings.retirementAge - currentAge + 10);
 
-  const projected = useMemo(() => {
-    if (!cpfBalance) return [];
-    return projectRetirement({
-      cpfStartBalances: cpfBalance,
-      dob: settings.dob,
-      retirementAge: settings.retirementAge,
-      payoutStartAge: settings.payoutStartAge,
-      grossMonthlySalary: settings.grossMonthlySalaryOverride ?? initialGrossMonthlySalary,
-      salaryGrowthRate: expProjSettings.inflation.incomeGrowthRate,
-      netMonthlyCashFlow: netMonthlyCashFlowOverride ?? initialNetMonthlyCashFlow,
-      currentPortfolioByTicker: startPortfolioByTicker,
-      tickerReturns: settings.tickerReturns,
-      tickerWeights,
-      oneOffs: localOneOffs,
-      horizonYears,
-      inflationRate: settings.inflationRate,
-    });
-  }, [cpfBalance, settings, netMonthlyCashFlowOverride, startPortfolioByTicker, tickerWeights, localOneOffs, horizonYears, initialGrossMonthlySalary, initialNetMonthlyCashFlow, expProjSettings.inflation.incomeGrowthRate]);
+  // Matches projectRetirement's baselineYear (cpfStartBalances year + 1) / endYear derivation,
+  // computed independently here so the expense projection doesn't depend on `projected` below.
+  const baselineYear = cpfBalance ? parseInt(cpfBalance.date.slice(0, 4), 10) + 1 : currentYear;
 
   // Yearly income/expense projections from the expense tab's baseline
   const yearlyExpenseProjections = useMemo(() => {
     if (!hasLoaded || !expProjSettings.baselineStart || expenseTransactions.length === 0) return {};
-    const startYear = projected[0]?.year ?? currentYear;
-    const endYear = projected[projected.length - 1]?.year ?? currentYear + horizonYears;
+    const startYear = baselineYear;
+    const endYear = baselineYear + horizonYears;
     const targetMonths: string[] = [];
     for (let y = startYear; y <= endYear; y++) {
       for (let m = 1; m <= 12; m++) {
@@ -204,7 +188,33 @@ export function RetirementClient({
       else byYear[y].expenses += row.amount;
     }
     return byYear;
-  }, [hasLoaded, expProjSettings, expenseTransactions, projectionOverrides, projected, currentYear, horizonYears]);
+  }, [hasLoaded, expProjSettings, expenseTransactions, projectionOverrides, baselineYear, horizonYears]);
+
+  // First projection year's net cash flow, derived from the same baseline as the chart tooltip
+  const derivedNetMonthlyCashFlow = useMemo(() => {
+    const firstYear = yearlyExpenseProjections[baselineYear];
+    if (!firstYear) return null;
+    return (firstYear.income - firstYear.expenses) / 12;
+  }, [yearlyExpenseProjections, baselineYear]);
+
+  const projected = useMemo(() => {
+    if (!cpfBalance) return [];
+    return projectRetirement({
+      cpfStartBalances: cpfBalance,
+      dob: settings.dob,
+      retirementAge: settings.retirementAge,
+      payoutStartAge: settings.payoutStartAge,
+      grossMonthlySalary: settings.grossMonthlySalaryOverride ?? initialGrossMonthlySalary,
+      salaryGrowthRate: expProjSettings.inflation.incomeGrowthRate,
+      netMonthlyCashFlow: netMonthlyCashFlowOverride ?? derivedNetMonthlyCashFlow ?? initialNetMonthlyCashFlow,
+      currentPortfolioByTicker: startPortfolioByTicker,
+      tickerReturns: settings.tickerReturns,
+      tickerWeights,
+      oneOffs: localOneOffs,
+      horizonYears,
+      inflationRate: settings.inflationRate,
+    });
+  }, [cpfBalance, settings, netMonthlyCashFlowOverride, derivedNetMonthlyCashFlow, startPortfolioByTicker, tickerWeights, localOneOffs, horizonYears, initialGrossMonthlySalary, initialNetMonthlyCashFlow, expProjSettings.inflation.incomeGrowthRate]);
 
   const atRetirement = projected.find(p => p.age === settings.retirementAge) || projected[projected.length - 1];
 
@@ -393,7 +403,7 @@ export function RetirementClient({
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-slate-500">Net Monthly Cash Flow</label>
-                <input type="number" placeholder={initialNetMonthlyCashFlow.toString()} value={netMonthlyCashFlowOverride ?? ''} onChange={e => setNetMonthlyCashFlowOverride(e.target.value ? parseFloat(e.target.value) : null)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                <input type="number" placeholder={Math.round(derivedNetMonthlyCashFlow ?? initialNetMonthlyCashFlow).toString()} value={netMonthlyCashFlowOverride ?? ''} onChange={e => setNetMonthlyCashFlowOverride(e.target.value ? parseFloat(e.target.value) : null)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-slate-500">Inflation Rate (%)</label>

@@ -18,7 +18,7 @@ import { updateExpenseCategory, updateExpenseExcluded, updateExpenseOneOff, appl
 import { upsertCpfBalance, upsertRetirementOneOff, deleteRetirementOneOff } from '@/lib/retirement/sheets';
 import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
-import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow, ExpenseProjectionOverride, CpfBalance, RetirementOneOff } from '@/types';
+import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow, ExpenseProjectionOverride, CpfBalance, RetirementOneOff, ExpenseRule } from '@/types';
 
 export async function upsertHoldingAction(data: Holding): Promise<void> {
   await upsertHolding(data);
@@ -150,9 +150,9 @@ export async function bulkUpdateCategoryAction(ids: string[], category: string):
   revalidatePath('/expenses');
 }
 
-export async function createExpenseRuleAction(merchant: string, category: string): Promise<void> {
-  await upsertExpenseRule({ merchant, category });
-  await applyRuleToExisting(merchant, category);
+export async function createExpenseRuleAction(rule: ExpenseRule): Promise<void> {
+  await upsertExpenseRule(rule);
+  await applyRuleToExisting(rule);
   revalidatePath('/expenses');
 }
 

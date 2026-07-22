@@ -6,6 +6,53 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.9 Phase 3 (2026-07-21)
+
+Replaced the hardcoded `initialGrossMonthlySalary={9000}` / `initialNetMonthlyCashFlow={3000}` on the retirement page with values derived from real data. Manual overrides (`grossMonthlySalaryOverride`, `netMonthlyCashFlowOverride`) still take precedence and still persist in `localStorage`.
+
+- **`src/lib/retirement/salary.ts`** (new) — `deriveGrossMonthlySalary(cpfTransactions, userAge)`: sums `oaChange + saChange + maChange` across each month's `CON` rows, takes the most recent month, and divides by `getCpfContributionRate(userAge).total` (reused from `cpf.ts`, not duplicated). Returns `null` if there are no `CON` rows. Result is ceiling-capped by construction — intentional, since the projection only uses gross salary to compute CPF contributions, which are capped anyway.
+- **`src/app/retirement/page.tsx`** — added `getCpfTransactions()` to the page's `Promise.all`; computes `userAge` the same way `expenses/page.tsx` does (`new Date().getFullYear() - 1984`); passes `initialGrossMonthlySalary={derivedGrossMonthlySalary ?? 9000}`.
+- **`src/app/expenses/page.tsx`** — now also derives gross salary the same way and passes it to `ExpensesClient` as `grossMonthlySalary` (was previously omitted, so `CpfPanel` always used its hardcoded 9000 default).
+- **`src/components/retirement/RetirementClient.tsx`** — the `yearlyExpenseProjections` useMemo (already used for the chart tooltip) now computes its target-month range from an independently-derived `baselineYear` (`cpfBalance` year + 1, matching `projectRetirement`'s internal `baselineYear`) instead of reading `projected[0]/[last].year`, so it no longer depends on the `projected` useMemo — avoids a circular dependency now that `projected` needs a value derived from `yearlyExpenseProjections`. New `derivedNetMonthlyCashFlow` useMemo reads `yearlyExpenseProjections[baselineYear]` and computes `(income − expenses) / 12`. Precedence in the `projected` useMemo: `netMonthlyCashFlowOverride ?? derivedNetMonthlyCashFlow ?? initialNetMonthlyCashFlow`. The Net Monthly Cash Flow settings input's placeholder now shows the derived value (rounded) instead of the static prop.
+- **Tests:** `src/lib/retirement/__tests__/salary.test.ts` (new, 5 tests) — no CON rows → null, single month/single row, multiple CON rows summed within a month, most-recent-month wins, age-bracket rate selection.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
+## Current State — v0.9 Phase 2 (2026-07-21)
+
+Generalized `ExpenseRules` from a flat merchant→category map into a match+action rules engine, collapsing four backlog items (GIRO/AUTOPAY/BILL PAYMENT credits miscounted as income, HSBC $1 verification-transfer junk, and a path to further "Other" cleanup) into one mechanism.
+
+- **`src/types/index.ts`** — `ExpenseRule` extended: `category` now optional, plus `account?`, `amount?`, `direction?` (match constraints) and `exclude?` (action). A rule needs at least one action (`category` or `exclude`).
+- **`src/lib/expenses/categorize.ts`** (reworked) — `ruleMatches(tx, rule)`: AND-semantics over merchant substring + optional account/amount(±0.005)/direction. `applyRules(tx, userRules)`: category = first match across `[userRules, BUILT_IN_RULES map, BUILT_IN_STRUCTURED_RULES]` (in that precedence order), falling back to `'Other'`; `excluded` = true if any matching user or built-in structured rule has `exclude: true`. Old `categorize()` removed — `applyRules` is the only entry point now.
+- **`src/lib/constants.ts`** — new `BUILT_IN_STRUCTURED_RULES`: `GIRO PAYMENT`/`AUTOPAY`/`BILL PAYMENT`/`PAYMENT RECEIVED` (Amex) → Transfer, and `HIB-` at exactly $1.00 → exclude (the HSBC verification transfers).
+- **`src/lib/expenses/pipeline.ts`** — runs `applyRules` for every parsed tx; category only overwrites a parser-assigned `'Other'` (unchanged behaviour), `excluded` is now always applied from the rule result.
+- **`src/lib/expenses/sheets.ts`** — `getExpenseRules`/`upsertExpenseRule` read/write `ExpenseRules!A:F` (`merchant | category | account | amount | direction | exclude`); old two-column rows still parse (empty C–F ⇒ no extra constraint). `applyRuleToExisting(rule: ExpenseRule)` now takes a full rule, reads `Expenses!A:M`, and reuses `ruleMatches` — category action still gated on existing category `'Other'`, exclude action applies to any non-excluded matching row.
+- **`src/app/lib/actions.ts`** — `createExpenseRuleAction` now takes a single `ExpenseRule` object instead of `(merchant, category)`.
+- **UI (`ExpensesClient.tsx`)** — rule dialog gained "only this account" / "only this exact amount" checkboxes (prefilled from the row; amount-match implicitly carries the row's direction) and an "Exclude from stats" toggle that replaces the category dropdown as the rule's action. New "Hide transfers" toggle (default on, alongside "Hide investment"/"Hide excluded") filters `Transfer`-category rows from both tabs' lists and donuts.
+- **`scripts/list-other-merchants.ts`** (new) — groups `category === 'Other'` expenses by normalized description prefix, prints count + total per group (top 40) for picking future built-in rules by hand.
+- **Tests:** `categorize.test.ts` rewritten around `ruleMatches`/`applyRules` (34 tests); `pipeline.test.ts` gained 2 tests for exclusion-at-import.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
+## Current State — v0.9 Phase 1 (2026-07-21)
+
+Automated the manual balance-continuity check from v0.8.1's OCR-bug sweep.
+
+- **`src/lib/expenses/validate.ts`** (new) — `validateBalanceContinuity(txs)`: groups transactions by `account`, walks each account's rows in date order (stable sort — same-date rows keep statement order), and flags any row where `prevBalance ± amount` (credit adds, debit subtracts) diverges from the recorded balance by more than 0.005. Rows with `balance: null` (credit cards) are skipped entirely.
+- **`src/types/index.ts`** — added `BalanceContinuityIssue`.
+- **`src/lib/expenses/pipeline.ts`** — after `appendExpenses`, if any rows were imported, re-fetches the full sheet for the touched accounts and runs `validateBalanceContinuity`, keeping only issues that involve a newly-imported row (so pre-existing issues aren't re-reported on every import). Result exposed as `ImportResult.continuityIssues`; also appended to `import.log` as `CONTINUITY: ...` lines.
+- **`GET /api/expenses/validate`** (new route) — full-sheet validation on demand, returns `{ issues }`.
+- **UI** — "Validate Balances" button next to Import on the Transactions tab (`ValidateBalancesButton.tsx`, new); `ImportButton.tsx` shows `continuityIssues` as a warning section in the import result panel.
+- **Tests:** 10 new (`validate.test.ts`) + 2 new (`pipeline.test.ts` continuity wiring); `pipeline.test.ts`'s sheets mock extended with `getExpenses`.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
 ## Current State — v0.8.1 (2026-07-21)
 
 Patch release. Audited the expense import pipeline after spotting a garbage HSBC transaction; found and fixed a cluster of related OCR-parsing bugs, then did a full-sheet balance-continuity sweep to catch anything similar. See `PLAN.md` § v0.8.1 for the full changelog. Summary:

@@ -144,6 +144,92 @@ United Overseas Bank Limited
   });
 });
 
+describe('parseUOBDeposit — SGD section boundaries around a JPY wallet', () => {
+  // Reproduces the real ~Jun 2026 One Account statement shape: an SGD main section,
+  // then a JPY FX+ wallet sub-section, then back to SGD — each with its own
+  // "BALANCE B/F" line. Regression coverage for two bugs:
+  //  1. wallet balance (JPY) must not leak into the SGD balance-continuity chain
+  //     (assert `balance: null` on wallet rows).
+  //  2. `prevBalance` must reseed at each B/F boundary — otherwise the first row of
+  //     a new section computes its direction against the *previous* section's
+  //     currency figure, which can flip debit/credit (see the return-to-SGD case
+  //     below, engineered so the un-seeded chain would wrongly call it a debit).
+  const text = `
+Account Transaction Details
+One Account 779-XXX-XXX-X
+01 Jun
+BALANCE B/F
+50000.00
+05 Jun
+GRAB*GRAB SG
+xxxxxx1234
+17.50
+49982.50
+08 Jun
+Salary
+xxxxxx0001
+5000.00
+54982.50
+01 Jun
+BALANCE B/F
+119994.00
+10 Jun
+Misc DR-Debit Card
+SGD 12.36
+07 JUN 6363 5255635
+KEIHINKYUKODENTETSU JO   KANAGAWAKEN
+JP
+1530.00118464.00
+13 Jun
+Misc DR-Debit Card
+SGD 13.51
+08 JUN 6363 2565805
+SEVEN-ELEVEN             TOKYO        JP
+1672.00115572.00
+01 Jun
+BALANCE B/F
+54982.50
+20 Jun
+Inward Credit-FAST
+xxxxxx9999
+500.00
+55482.50
+United Overseas Bank Limited
+`;
+
+  const result = parseUOBDeposit(text, 'eStatement3.pdf');
+
+  it('returns 5 transactions (all 3 BALANCE B/F rows excluded)', () => {
+    expect(result).toHaveLength(5);
+  });
+
+  it('SGD rows before the wallet section keep real balances and correct directions', () => {
+    expect(result[0].description).toBe('GRAB*GRAB SG');
+    expect(result[0].direction).toBe('debit');
+    expect(result[0].balance).toBe(49982.5);
+
+    expect(result[1].description).toBe('Salary');
+    expect(result[1].direction).toBe('credit');
+    expect(result[1].balance).toBe(54982.5);
+  });
+
+  it('wallet rows have balance: null, correct SGD amount, correct debit direction', () => {
+    expect(result[2].amount).toBe(12.36);
+    expect(result[2].direction).toBe('debit');
+    expect(result[2].balance).toBeNull();
+
+    expect(result[3].amount).toBe(13.51);
+    expect(result[3].direction).toBe('debit');
+    expect(result[3].balance).toBeNull();
+  });
+
+  it('first SGD row after returning from the wallet section reseeds direction from its own B/F, not the leftover JPY balance', () => {
+    expect(result[4].description).toBe('Inward Credit-FAST');
+    expect(result[4].direction).toBe('credit');
+    expect(result[4].balance).toBe(55482.5);
+  });
+});
+
 describe('parseUOBDeposit — year boundary', () => {
   const decText = `
 Period: 01 Dec 2025 to 01 Jan 2026

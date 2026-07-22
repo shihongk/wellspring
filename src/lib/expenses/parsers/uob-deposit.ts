@@ -14,7 +14,12 @@ const SECTION_START = 'Account Transaction Details';
 const DISCLAIMER_START = 'Pleasenotethat';
 // Column headers, page numbers, account section headers, totals row
 const SKIP_LINE = /^(DateDescription|Withdrawals|Deposits|Balance|SGD|Account Transaction Details)\s*$|^Page \d+ of \d+$|^Total\d/i;
-const ACCOUNT_SECTION_HEADER = /A\/c\s+\d/;
+// Matches both the fixture-style "A/c 779-XXX-XXX-X" and the real statement's repeated
+// per-page header "One Account   779-358-006-5 (continued)" — the latter reappears while
+// a transaction group from the previous page is still open (no date anchor has closed it
+// yet), so left unfiltered it becomes the trailing line of that group and corrupts its
+// amount/balance parse, silently dropping the whole transaction.
+const ACCOUNT_SECTION_HEADER = /A\/c\s+\d|^(One Account|Lady's (Savings|Card))\s+\d{3}-\d{3}-\d{3}-\d\b/;
 
 const MONTH_NUM: Record<string, number> = {
   jan:1, feb:2, mar:3, apr:4, may:5, jun:6,

@@ -230,6 +230,55 @@ United Overseas Bank Limited
   });
 });
 
+describe('parseUOBDeposit — transaction spanning a page break', () => {
+  // Reproduces the real Jan 2026 One Account statement: each page repeats
+  // "One Account   779-358-006-5 (continued)" as its header. If that line isn't
+  // filtered, it leaks into the trailing (last) transaction group open when the
+  // page breaks, corrupts the amount/balance concat-float parse, and the whole
+  // transaction is silently dropped (< 2 floats found → skipped).
+  const text = `
+Account Transaction Details
+One Account   779-358-006-5
+01 Jan
+BALANCE B/F
+3547.41
+12 Jan
+Funds Transfer
+mBK-7623756967
+10,000.003,547.41
+United Overseas Bank Limited
+Page 5 of 9
+Account Transaction Details
+One Account   779-358-006-5 (continued)
+DateDescription
+Withdrawals
+SGD
+Deposits
+SGD
+Balance
+SGD
+12 Jan
+NETS Debit-Consumer
+BAI LI XIAN09464257
+xxxxxx0065
+5.203,542.21
+`;
+
+  const result = parseUOBDeposit(text, 'eStatement2.pdf');
+
+  it('captures the transaction whose group closes right at the page break', () => {
+    expect(result).toHaveLength(2);
+    expect(result[0].description).toBe('Funds Transfer mBK-7623756967');
+    expect(result[0].direction).toBe('debit');
+    expect(result[0].amount).toBe(10000);
+    expect(result[0].balance).toBe(3547.41);
+  });
+
+  it('does not leak the repeated "(continued)" header into the next description', () => {
+    expect(result[1].description).toBe('NETS Debit-Consumer BAI LI XIAN09464257');
+  });
+});
+
 describe('parseUOBDeposit — year boundary', () => {
   const decText = `
 Period: 01 Dec 2025 to 01 Jan 2026

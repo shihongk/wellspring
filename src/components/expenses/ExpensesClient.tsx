@@ -4,6 +4,7 @@ import { useState, useMemo, useTransition } from 'react';
 import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride, CpfBalance, CpfTransaction } from '@/types';
 import { ProjectionsTab } from './ProjectionsTab';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
+import { ruleMatches } from '@/lib/expenses/categorize';
 import {
   updateExpenseCategoryAction,
   setExpenseExcludedAction,
@@ -510,6 +511,26 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
       ...(ruleForm.matchAccount ? { account: ruleForm.account } : {}),
       ...(ruleForm.matchAmount ? { amount: ruleForm.amount, direction: ruleForm.direction } : {}),
     };
+
+    // Optimistic update, mirroring applyRuleToExisting's server-side semantics
+    // (category rules only overwrite 'Other' rows; exclude only flips false→true) —
+    // every other mutation handler in this file does this; without it the row that
+    // triggered rule creation doesn't visually update until the next full reload.
+    if (rule.category) {
+      const categoryUpdates: Record<string, string> = {};
+      for (const t of transactions) {
+        if (catOf(t) === 'Other' && ruleMatches(t, rule)) categoryUpdates[t.id] = rule.category;
+      }
+      setLocalCategories(prev => ({ ...prev, ...categoryUpdates }));
+    }
+    if (rule.exclude) {
+      const excludeUpdates: Record<string, boolean> = {};
+      for (const t of transactions) {
+        if (!isExcluded(t) && ruleMatches(t, rule)) excludeUpdates[t.id] = true;
+      }
+      setLocalExcluded(prev => ({ ...prev, ...excludeUpdates }));
+    }
+
     startTransition(() => { createExpenseRuleAction(rule); });
     setRuleForm(null);
   }

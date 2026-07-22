@@ -15,6 +15,22 @@
 | v0.8 | 2026-05-07 | ✅ Complete |
 | v0.8.1 | 2026-07-21 | ✅ Complete |
 | v0.9 | 2026-07-21 | ✅ Complete |
+| v0.9.1 | 2026-07-22 | ✅ Complete |
+
+---
+
+## v0.9.1 — Create Rule Bug Fixes (Complete)
+
+Patch release. User reported that clicking "Save rule" created the rule but didn't update the category on the transaction that triggered it. Investigation found two separate bugs.
+
+### Changes shipped
+
+- **`ExpensesClient.tsx`** — `handleSaveRule` now sets optimistic local state (`localCategories`/`localExcluded`) for every currently-loaded transaction matching the new rule, same pattern as every other mutation handler in the file. Fixes the immediate-UI-update symptom the user reported.
+- **`src/lib/expenses/sheets.ts`** — `upsertExpenseRule`'s append path replaced `values.append` (which relies on Sheets' table-detection heuristic) with an explicit `values.update` at a row index computed from the already-fetched data. Root cause: the heuristic had drifted to anchor new rows at column F instead of A, silently making 16 previously-created rules invisible to the app (`getExpenseRules()` filters on column A being non-empty). This was a real, user-impacting data-loss bug, not just a UI symptom.
+- **Data repair (one-off script, not committed):** shifted the 16 affected `ExpenseRules` rows back from F:K to A:F. `getExpenseRules()` now returns 87 rules (was 71).
+
+### Tests
+208/208 passing (unchanged — no new automated coverage for the Sheets-API append behavior; verified manually via live sheet inspection before/after the fix).
 
 ---
 

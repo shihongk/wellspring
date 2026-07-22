@@ -336,19 +336,18 @@ export async function upsertExpenseRule(rule: ExpenseRule): Promise<void> {
     rule.exclude ? 'true' : '',
   ];
 
-  if (rowIndex >= 1) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${SHEET_NAMES.EXPENSE_RULES}!A${rowIndex + 1}:F${rowIndex + 1}`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [rowData] },
-    });
-  } else {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [rowData] },
-    });
-  }
+  // Target row is computed explicitly and written via `update`, not `append` — this
+  // sheet has rows with mixed column widths (2-col legacy rows vs. later 6-col rows),
+  // and `append`'s "detect the table, then append after it" heuristic misread that
+  // as a table anchored at column F rather than A, silently misfiling every new rule
+  // into F:K for several rows in a row until caught (each bad row reinforced the same
+  // wrong anchor for the next append). An explicit target range sidesteps the heuristic
+  // entirely.
+  const targetRow = rowIndex >= 1 ? rowIndex + 1 : rows.length + 1;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSE_RULES}!A${targetRow}:F${targetRow}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [rowData] },
+  });
 }

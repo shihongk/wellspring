@@ -6,6 +6,18 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.9.1 (2026-07-22)
+
+Patch release fixing two bugs in the "Create Rule" flow, found while debugging a report that saving a rule didn't visibly update the category on the transaction that triggered it.
+
+- **UI (`ExpensesClient.tsx`)** — `handleSaveRule` was the only mutation handler in the file that didn't set optimistic local state (every other handler — category change, bulk apply, exclude toggle, one-off toggle — does). It now mirrors `applyRuleToExisting`'s server-side semantics client-side: for a category rule, sets `localCategories` on every currently-loaded transaction that matches via `ruleMatches` **and** is currently `'Other'`; for an exclude rule, sets `localExcluded` on every match that isn't already excluded. The triggering row (and any other visible matches) now update immediately instead of waiting for a full reload.
+- **`src/lib/expenses/sheets.ts` — `upsertExpenseRule`** (real bug, silent data loss): the append-new-rule path used `values.append`, which asks the Sheets API to detect the target "table" and insert after it. Because `ExpenseRules` has a mix of 2-column legacy rows and later 6-column rows, at some point during v0.9 Phase 2 usage this heuristic anchored on column F instead of A for one row, and every subsequent append inherited the same wrong anchor — 16 rules created since then were silently written into columns F:K with A:F blank, which made them invisible to `getExpenseRules()` (filtered out since column A read empty) even though the one-time retroactive category/exclude application at creation time had already worked from the in-memory `rule` object. Fixed by computing the target row explicitly from the already-fetched row count and using `values.update` with an explicit range instead of `values.append` — removes the dependency on Sheets' table-detection heuristic entirely.
+- **Data repair (one-off, not code):** shifted all 16 affected `ExpenseRules` rows from F:K back to A:F. Verified `getExpenseRules()` now returns 87 rules (was 71 visible / 87 actual). No transaction data was affected — the retroactive category/exclude actions from those 16 rule creations had already landed correctly on the relevant transactions; only the *rules themselves* were invisible for future use.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
 ## Current State — v0.9 Phase 3 (2026-07-21)
 
 Replaced the hardcoded `initialGrossMonthlySalary={9000}` / `initialNetMonthlyCashFlow={3000}` on the retirement page with values derived from real data. Manual overrides (`grossMonthlySalaryOverride`, `netMonthlyCashFlowOverride`) still take precedence and still persist in `localStorage`.

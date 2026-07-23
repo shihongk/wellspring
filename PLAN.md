@@ -20,6 +20,43 @@
 | v0.9.2 | 2026-07-22 | ✅ Complete |
 | v0.9.3 | 2026-07-23 | ✅ Complete |
 | v0.9.4 | 2026-07-23 | ✅ Complete |
+| v0.10 | 2026-07-23 | ✅ Complete |
+
+---
+
+## v0.10 — Margin Financing
+
+### Objective
+
+Margin-funded BUYs currently look identical to cash-funded ones — shares and cost basis increase with nothing recorded to offset it, so total portfolio value and "All-time Return" (gain ÷ cost basis) both overstate things as if the position were fully equity-funded.
+
+### Design (confirmed 2026-07-23)
+
+Key finding: BUY/SELL transactions never touch Cash automatically today — Cash balances are already a manually-maintained, independent ledger (`upsertCashAccount`). This meant the original "negative cash account" idea from `ROADMAP.md` needed almost no new plumbing, but the user asked for something more automatic instead: margin tracked explicitly via checkboxes on the transaction form, auto-updated by BUY/SELL, with a separate "repay margin" flow for cash transfers in.
+
+**New `Margin` sheet tab** — `A: account | B: outstanding_sgd`, single row to start (parallel structure to `Cash`). A single SGD-denominated running balance, updated by FX-converting each event's local-currency amount into SGD *at the time of the event* — not re-converted later. This mirrors how `PortfolioHistory` freezes FX-adjusted totals per day; avoids needing per-currency margin sub-balances.
+
+**`Holdings` gains a `margin_shares` column** — a running count of how many of the ticker's *currently held* shares were bought with margin (not yet sold/repaid). Needed because Holdings only stores share-count + blended avg cost, not per-lot history — shares are fungible, so this is the minimum extra state needed to know, at SELL time, how many of the shares being sold were margin-funded.
+
+**`Transaction` gains a `marginFlag` column** — checkbox on the transaction form, meaning differs by type:
+- **BUY + checked ("Funded by margin")**: Holdings shares/avg-cost update exactly as today (funding source doesn't affect cost tracking). *Additionally*: `holding.marginShares += shares`, and `Margin.outstanding_sgd += toSGD(shares × priceLocal, currency, fxRates)`.
+- **SELL + checked ("Reduce margin from proceeds")**: `sharesReducedFromMargin = min(sharesSold, holding.marginShares)` — capped so a sale never reduces more margin than was actually attributed to it. `holding.marginShares -= sharesReducedFromMargin`. `Margin.outstanding_sgd -= toSGD(sharesReducedFromMargin × priceLocal, currency, fxRates)` — reduced by *sale proceeds* of the margin-attributed shares, not their original purchase cost (matches how a real margin loan gets paid down from sale proceeds). Unchecked SELLs (or sales with no margin shares held) don't touch the Margin balance at all — explicit user control, since not every sale of a formerly-margin-funded position should be attributed to closing it out.
+- FX rates are only fetched (`fetchPricesAndFx()`) when `marginFlag` is set, to avoid an unnecessary Yahoo Finance call on every ordinary transaction.
+
+**New "repay margin" action** — a cash transfer into the brokerage. `reduction = min(amount, outstandingMargin)`; `Margin.outstanding_sgd -= reduction`; any `excess = amount - reduction` is added to the chosen Cash account instead. UI lives on the Cash page.
+
+**Net worth fix** — `computePortfolioSnapshot` (`portfolio.ts`) must explicitly subtract outstanding margin: `netWorth = cash + holdings value − outstanding margin`. This is a real, necessary change — margin was going to be folded into Cash under the original (superseded) design, where net worth already self-corrected for free; under this design margin is tracked separately, so without this change a margin balance wouldn't reduce displayed net worth at all.
+
+**Return % fix** — no separate "net contributed capital" concept needed. Your own money currently invested = `total cost basis − outstanding margin`, so "All-time Return" (`dashboard-client.tsx`, `history-client.tsx`) becomes `unrealized gain ÷ (cost basis − outstanding margin)` instead of `unrealized gain ÷ cost basis`. Per-holding contribution-percentage-point breakdown in `history-client.tsx` stays cost-basis-based for now (secondary display, not worth the added complexity of a per-holding margin split).
+
+**Explicitly out of scope** (documented limitation, not solved here): interest accrual on the margin balance. Matches the original ROADMAP tradeoff for the "cheap" design — a first-class `Liabilities` tab with real interest tracking was the alternative, not chosen.
+
+### Phases
+
+- [x] Phase 1 — Data layer: `Margin` tab + `sheets.ts` functions, `Holdings.margin_shares` column, `Transaction.marginFlag` column, type updates
+- [x] Phase 2 — Transaction form: BUY/SELL margin checkboxes, `logTransactionAction` wiring (margin balance + margin_shares updates, gated FX fetch)
+- [x] Phase 3 — Repay-margin action + UI on the Cash page
+- [x] Phase 4 — Net worth fix (`portfolio.ts`) + Return % fix (`dashboard-client.tsx`, `history-client.tsx`) + Outstanding Margin display
 
 ---
 

@@ -3,9 +3,10 @@ export const dynamic = 'force-dynamic';
 import { google } from 'googleapis';
 
 const TABS = [
-  { title: 'Holdings',     headers: ['ticker', 'name', 'shares', 'avg_cost_local', 'currency'] },
+  { title: 'Holdings',     headers: ['ticker', 'name', 'shares', 'avg_cost_local', 'currency', 'margin_shares'] },
   { title: 'Cash',         headers: ['account', 'currency', 'amount'] },
-  { title: 'Transactions', headers: ['id', 'date', 'ticker', 'type', 'shares', 'price_local', 'currency'] },
+  { title: 'Margin',       headers: ['account', 'outstanding_sgd'] },
+  { title: 'Transactions', headers: ['id', 'date', 'ticker', 'type', 'shares', 'price_local', 'currency', 'margin_flag'] },
   { title: 'TargetAllocation',   headers: ['ticker', 'target_pct'] },
   { title: 'InvestmentSchedule', headers: ['month', 'ticker', 'name', 'planned_sgd'] },
   { title: 'FxRates',            headers: ['pair', 'rate', 'fetched_at'] },

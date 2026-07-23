@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { Holding, Transaction, CashPosition, CashAccount, TargetAllocationRow, InvestmentScheduleRow, FxRates, PortfolioHistoryEntry } from '@/types';
+import { Holding, Transaction, CashPosition, CashAccount, MarginPosition, TargetAllocationRow, InvestmentScheduleRow, FxRates, PortfolioHistoryEntry } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
 
 function getSheetsClient() {
@@ -42,9 +42,9 @@ export async function getHoldings(): Promise<Holding[]> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.HOLDINGS}!A:E`,
+    range: `${SHEET_NAMES.HOLDINGS}!A:F`,
   });
-  
+
   const rows = res.data.values || [];
   if (rows.length <= 1) return []; // Only header or empty
 
@@ -54,6 +54,7 @@ export async function getHoldings(): Promise<Holding[]> {
     shares: parseFloat(row[2]),
     avgCostLocal: parseFloat(row[3]),
     currency: row[4] as Holding['currency'],
+    marginShares: parseFloat(row[5]) || 0,
   }));
 }
 
@@ -61,18 +62,19 @@ export async function upsertHolding(holding: Holding): Promise<void> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.HOLDINGS}!A:E`,
+    range: `${SHEET_NAMES.HOLDINGS}!A:F`,
   });
-  
+
   const rows = res.data.values || [];
   const rowIndex = rows.findIndex((row) => row[0] === holding.ticker);
-  
+
   const rowData = [
     holding.ticker,
     holding.name,
     holding.shares.toString(),
     holding.avgCostLocal.toString(),
     holding.currency,
+    (holding.marginShares ?? 0).toString(),
   ];
 
   if (rowIndex >= 0) {
@@ -80,7 +82,7 @@ export async function upsertHolding(holding: Holding): Promise<void> {
     const rowNumber = rowIndex + 1;
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SHEET_NAMES.HOLDINGS}!A${rowNumber}:E${rowNumber}`,
+      range: `${SHEET_NAMES.HOLDINGS}!A${rowNumber}:F${rowNumber}`,
       valueInputOption: 'RAW',
       requestBody: { values: [rowData] },
     });
@@ -88,7 +90,7 @@ export async function upsertHolding(holding: Holding): Promise<void> {
     // Append new row
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${SHEET_NAMES.HOLDINGS}!A:E`,
+      range: `${SHEET_NAMES.HOLDINGS}!A:F`,
       valueInputOption: 'RAW',
       requestBody: { values: [rowData] },
     });
@@ -212,13 +214,60 @@ export async function updateCash(amount: number): Promise<void> {
   return upsertCashAccount('Default', amount);
 }
 
+function parseMarginRows(rows: string[][]): MarginPosition {
+  if (rows.length <= 1) return { accounts: [], totalSGD: 0 };
+
+  const accounts = rows.slice(1).map((row) => ({
+    account: row[0],
+    outstandingSGD: parseFloat(row[1]) || 0,
+  }));
+
+  const totalSGD = accounts.reduce((sum, a) => sum + a.outstandingSGD, 0);
+  return { accounts, totalSGD };
+}
+
+export async function getMargin(): Promise<MarginPosition> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.MARGIN}!A:B`,
+  });
+
+  return parseMarginRows(res.data.values || []);
+}
+
+export async function adjustMarginBalance(account: string, deltaSGD: number): Promise<void> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.MARGIN}!A:B`,
+  });
+
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex((r, i) => i > 0 && r[0] === account);
+  const current = rowIndex >= 0 ? parseFloat(rows[rowIndex][1]) || 0 : 0;
+  const newBalance = Math.max(0, current + deltaSGD);
+  const rowData = [account, newBalance.toString()];
+
+  // Explicit target row + `update`, not `append` — append's table-detection heuristic
+  // silently misfiled ExpenseRules rows into the wrong columns once already this session
+  // (see HANDOVER.md v0.9.1); an explicit row index sidesteps that class of bug entirely.
+  const targetRow = rowIndex >= 0 ? rowIndex + 1 : rows.length + 1;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAMES.MARGIN}!A${targetRow}:B${targetRow}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [rowData] },
+  });
+}
+
 export async function getTransactions(ticker?: string): Promise<Transaction[]> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAMES.TRANSACTIONS}!A:G`,
+    range: `${SHEET_NAMES.TRANSACTIONS}!A:H`,
   });
-  
+
   const rows = res.data.values || [];
   if (rows.length <= 1) return [];
 
@@ -230,6 +279,7 @@ export async function getTransactions(ticker?: string): Promise<Transaction[]> {
     shares: parseFloat(row[4]),
     priceLocal: parseFloat(row[5]),
     currency: row[6] as Transaction['currency'],
+    marginFlag: row[7] === 'TRUE',
   }));
 
   if (ticker) {
@@ -243,16 +293,16 @@ export async function getTransactions(ticker?: string): Promise<Transaction[]> {
 export async function appendTransaction(t: Omit<Transaction, 'id'>): Promise<string> {
   const { sheets, spreadsheetId } = getSheetsClient();
   const id = `txn_${Date.now()}`;
-  
-  const rowData = [id, t.date, t.ticker, t.type, t.shares.toString(), t.priceLocal.toString(), t.currency];
-  
+
+  const rowData = [id, t.date, t.ticker, t.type, t.shares.toString(), t.priceLocal.toString(), t.currency, t.marginFlag ? 'TRUE' : ''];
+
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${SHEET_NAMES.TRANSACTIONS}!A:G`,
+    range: `${SHEET_NAMES.TRANSACTIONS}!A:H`,
     valueInputOption: 'RAW',
     requestBody: { values: [rowData] },
   });
-  
+
   return id;
 }
 
@@ -418,6 +468,7 @@ export async function getDashboardData(): Promise<{
   cash: CashPosition;
   targetAllocations: TargetAllocationRow[];
   history: PortfolioHistoryEntry[];
+  marginSGD: number;
 }> {
   const { sheets, spreadsheetId } = getSheetsClient();
 
@@ -428,10 +479,11 @@ export async function getDashboardData(): Promise<{
       `${SHEET_NAMES.CASH}!A:C`,
       `${SHEET_NAMES.TARGET_ALLOCATION}!A:B`,
       `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:E`,
+      `${SHEET_NAMES.MARGIN}!A:B`,
     ],
   });
 
-  const [holdingsRange, cashRange, allocRange, historyRange] = res.data.valueRanges ?? [];
+  const [holdingsRange, cashRange, allocRange, historyRange, marginRange] = res.data.valueRanges ?? [];
 
   const holdingRows = holdingsRange?.values ?? [];
   const holdings: Holding[] = holdingRows.length <= 1 ? [] : holdingRows.slice(1).map((row) => ({
@@ -473,7 +525,10 @@ export async function getDashboardData(): Promise<{
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  return { holdings, cash, targetAllocations, history };
+  const marginPosition = parseMarginRows(marginRange?.values ?? []);
+  const marginSGD = marginPosition.accounts.find((a) => a.account === 'Default')?.outstandingSGD ?? 0;
+
+  return { holdings, cash, targetAllocations, history, marginSGD };
 }
 
 export async function writeFxRates(rates: FxRates): Promise<void> {

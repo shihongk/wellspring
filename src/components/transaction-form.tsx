@@ -28,6 +28,7 @@ export default function TransactionForm({ action }: Props) {
     shares: 0,
     priceLocal: 0,
     currency: TICKER_CURRENCY[EQUITY_TICKERS[0]],
+    marginFlag: false,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -137,6 +138,18 @@ export default function TransactionForm({ action }: Props) {
               disabled
             />
           </div>
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={formData.marginFlag ?? false}
+              onChange={(e) => setFormData({ ...formData, marginFlag: e.target.checked })}
+              className="rounded border-slate-300 text-slate-600 focus:ring-slate-500"
+            />
+            {formData.type === 'BUY' ? 'Funded by margin' : 'Reduce margin from proceeds'}
+          </label>
         </div>
 
         <Button type="submit" className="w-full" disabled={isPending}>

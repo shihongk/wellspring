@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { getPortfolioHistory, getHoldings, getCash } from '@/lib/google-sheets';
+import { getPortfolioHistory, getHoldings, getCash, getMargin } from '@/lib/google-sheets';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { computePortfolioSnapshot } from '@/lib/portfolio';
 import { Card } from '@/components/ui/card';
@@ -26,14 +26,17 @@ function formatChange(diff: number, pct: number): string {
 }
 
 export default async function HistoryPage() {
-  const [history, holdings, cash, { fxRates, prices, stale, fetchedAt }] = await Promise.all([
+  const [history, holdings, cash, margin, { fxRates, prices, stale, fetchedAt }] = await Promise.all([
     getPortfolioHistory(),
     getHoldings(),
     getCash(),
+    getMargin(),
     fetchPricesAndFx(),
   ]);
 
-  const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, stale, fetchedAt);
+  const marginSGD = margin.accounts.find((a) => a.account === 'Default')?.outstandingSGD ?? 0;
+
+  const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, stale, fetchedAt, marginSGD);
   const chartData = history.map((e) => ({ date: e.date, totalValueSGD: e.totalValueSGD }));
 
   // Stats derived from history
@@ -140,7 +143,7 @@ export default async function HistoryPage() {
 
           {/* Chart + Breakdown (shared range selector) */}
           <Card className="p-6">
-            <HistoryClient chartData={chartData} breakdown={breakdown} />
+            <HistoryClient chartData={chartData} breakdown={breakdown} outstandingMarginSGD={marginSGD} />
           </Card>
         </>
       ) : (

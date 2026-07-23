@@ -25,6 +25,7 @@ export const TICKER_CURRENCY: Record<string, Currency> = {
 export const SHEET_NAMES = {
   HOLDINGS: 'Holdings',
   CASH: 'Cash',
+  MARGIN: 'Margin',
   TRANSACTIONS: 'Transactions',
   TARGET_ALLOCATION: 'TargetAllocation',
   INVESTMENT_SCHEDULE: 'InvestmentSchedule',

@@ -15,13 +15,13 @@ const TICKER_COLORS: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const [{ holdings, cash, targetAllocations, history }, { fxRates, prices, stale, fetchedAt }] =
+  const [{ holdings, cash, targetAllocations, history, marginSGD }, { fxRates, prices, stale, fetchedAt }] =
     await Promise.all([
       getDashboardData(),
       fetchPricesAndFx(),
     ]);
 
-  const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, stale, fetchedAt);
+  const snapshot = computePortfolioSnapshot(holdings, prices, fxRates, cash, stale, fetchedAt, marginSGD);
 
   const targetAllocMap = Object.fromEntries(
     targetAllocations.map((r) => [r.ticker, r.targetPct])

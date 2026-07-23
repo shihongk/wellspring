@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { getTargetAllocations, getInvestmentSchedule, getCash, getHoldings } from '@/lib/google-sheets';
+import { getTargetAllocations, getInvestmentSchedule, getCash, getHoldings, getMargin } from '@/lib/google-sheets';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { computePortfolioSnapshot } from '@/lib/portfolio';
 import { saveTargetAllocationsAction, saveScheduleAction } from '@/app/lib/actions';
@@ -9,12 +9,13 @@ import { ScheduleViewer } from '@/components/schedule-viewer';
 import { PlanSnapshot } from '@/components/plan-snapshot';
 
 export default async function PlanPage() {
-  const [allocResult, scheduleResult, cashResult, pricesResult, holdingsResult] = await Promise.allSettled([
+  const [allocResult, scheduleResult, cashResult, pricesResult, holdingsResult, marginResult] = await Promise.allSettled([
     getTargetAllocations(),
     getInvestmentSchedule(),
     getCash(),
     fetchPricesAndFx(),
     getHoldings(),
+    getMargin(),
   ]);
 
   const allocations = allocResult.status === 'fulfilled' ? allocResult.value : null;
@@ -22,9 +23,14 @@ export default async function PlanPage() {
   const cash = cashResult.status === 'fulfilled' ? cashResult.value : null;
   const pricesAndFx = pricesResult.status === 'fulfilled' ? pricesResult.value : null;
   const holdings = holdingsResult.status === 'fulfilled' ? holdingsResult.value : null;
+  // Degrade to 0 rather than blocking the snapshot — margin is expected to usually be 0
+  // and its absence shouldn't take down the Plan page.
+  const marginSGD = marginResult.status === 'fulfilled'
+    ? (marginResult.value.accounts.find((a) => a.account === 'Default')?.outstandingSGD ?? 0)
+    : 0;
 
   const snapshot = cash && pricesAndFx && holdings
-    ? computePortfolioSnapshot(holdings, pricesAndFx.prices, pricesAndFx.fxRates, cash, pricesAndFx.stale, pricesAndFx.fetchedAt)
+    ? computePortfolioSnapshot(holdings, pricesAndFx.prices, pricesAndFx.fxRates, cash, pricesAndFx.stale, pricesAndFx.fetchedAt, marginSGD)
     : null;
 
   return (

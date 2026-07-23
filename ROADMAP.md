@@ -6,7 +6,7 @@ Ideas and future work. **Do not design here** — just capture intent. When read
 
 ## Up next (prioritised)
 
-1. **v0.10 — margin financing** — direction agreed (negative-balance margin cash account + return reframed on net contributed capital); needs a design pass before build. See `PLAN.md` § v0.9 → "v0.10 (parked)".
+<!-- Move items here when you've decided what to build next, in order. -->
 
 ---
 

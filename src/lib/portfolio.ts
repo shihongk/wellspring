@@ -48,9 +48,10 @@ export function computePortfolioSnapshot(
   fxRates: FxRates,
   cash: CashPosition,
   pricesStale: boolean,
-  pricesFetchedAt: string | null
+  pricesFetchedAt: string | null,
+  marginSGD: number = 0
 ): PortfolioSnapshot {
-  
+
   let grandTotalSGD = cash.SGD;
   
   const portfolioHoldings: PortfolioHolding[] = holdings.map((h) => {
@@ -79,6 +80,8 @@ export function computePortfolioSnapshot(
 
   const cashAllocationPct = grandTotalSGD > 0 ? (cash.SGD / grandTotalSGD) * 100 : 0;
 
+  grandTotalSGD -= marginSGD;
+
   return {
     pricesStale,
     pricesFetchedAt,
@@ -86,5 +89,6 @@ export function computePortfolioSnapshot(
     totalValueSGD: pricesStale ? null : grandTotalSGD,
     holdings: portfolioHoldings,
     cash: { SGD: cash.SGD, allocationPct: cashAllocationPct },
+    outstandingMarginSGD: marginSGD,
   };
 }

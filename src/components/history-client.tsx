@@ -35,6 +35,7 @@ export interface BreakdownItem {
 interface Props {
   chartData: DataPoint[];
   breakdown: BreakdownItem[];
+  outstandingMarginSGD: number;
 }
 
 function filterByRange(data: DataPoint[], range: Range): DataPoint[] {
@@ -68,18 +69,21 @@ function fmtDate(dateStr: string): string {
   });
 }
 
-export function HistoryClient({ chartData, breakdown }: Props) {
+export function HistoryClient({ chartData, breakdown, outstandingMarginSGD }: Props) {
   const [range, setRange] = useState<Range>('1Y');
   const filtered = filterByRange(chartData, range);
   const isAll = range === 'ALL';
 
   // ── ALL: use cost basis as reference (equity only, matching dashboard calculation) ──
-  // Cash is excluded from the denominator — same as dashboard's totalCostBasis
+  // Cash is excluded from the denominator — same as dashboard's totalCostBasis.
+  // Outstanding margin is further subtracted from the denominator (net-of-margin basis),
+  // matching dashboard-client's effectiveCostBasis — margin-funded shares aren't "your money".
   const totalValueSGD = breakdown.reduce((s, r) => s + r.valueSGD, 0);
   const equityItems   = breakdown.filter((r) => r.ticker !== 'CASH' && r.unrealizedGainSGD != null);
   const equityCostBasis  = equityItems.reduce((s, r) => s + (r.costBasisSGD ?? 0), 0);
   const equityTotalGain  = equityItems.reduce((s, r) => s + r.unrealizedGainSGD!, 0);
-  const allTimeReturn    = equityCostBasis > 0 ? (equityTotalGain / equityCostBasis) * 100 : null;
+  const effectiveCostBasis = equityCostBasis - outstandingMarginSGD;
+  const allTimeReturn    = effectiveCostBasis > 0 ? (equityTotalGain / effectiveCostBasis) * 100 : null;
 
   function allTimeContributionPP(row: BreakdownItem): number | null {
     if (row.ticker === 'CASH' || row.unrealizedGainSGD == null || equityCostBasis <= 0) return null;
@@ -102,9 +106,9 @@ export function HistoryClient({ chartData, breakdown }: Props) {
 
   // ── Derived display values ───────────────────────────────────────────────────
   const displayReturn     = isAll ? allTimeReturn   : periodReturn;
-  // For ALL: cost basis → current equity value (mirrors dashboard's gain / costBasis)
-  const displayStartValue = isAll ? equityCostBasis : periodStartValue;
-  const displayEndValue   = isAll ? (equityCostBasis + equityTotalGain) : periodEndValue;
+  // For ALL: net-of-margin cost basis → current equity value (mirrors dashboard's gain / effectiveCostBasis)
+  const displayStartValue = isAll ? effectiveCostBasis : periodStartValue;
+  const displayEndValue   = isAll ? (effectiveCostBasis + equityTotalGain) : periodEndValue;
   const displayDiff       = displayStartValue != null && displayEndValue != null
     ? displayEndValue - displayStartValue : null;
 

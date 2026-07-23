@@ -32,6 +32,6 @@ Instructions I give once and expect applied automatically. Edit this file betwee
 
 ## Project-specific
 
-- **Current Focus:** v0.1–v0.9.2 all shipped. Next work comes from ROADMAP.md backlog (no version currently in progress).
+- **Current Focus:** v0.1–v0.10 all shipped. Next work comes from ROADMAP.md backlog (no version currently in progress). v0.10 (margin financing) mutation pipeline (BUY/SELL/repay touching the Margin balance) was verified via code review + isolated live reads only, not a full live round-trip — Transactions are append-only by design (SPEC.md), so a test BUY+SELL can't be cleanly reverted without leaving fake trade history. Treat the first real margin-flagged transaction as the real end-to-end test; sanity-check the Cash page's Outstanding Margin figure against expectations after it.
 - **Annual Fees:** When displaying annual fees, group them by card/account to deduplicate GST items. Omit the specific amount and description; only show the card name and date to track waivers.
 - **Expense Charts:** Keep the "Hide investment" filter alongside "Hide excluded" so the Investment category doesn't skew the visual overview.

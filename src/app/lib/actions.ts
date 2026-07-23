@@ -13,11 +13,14 @@ import {
   replaceTargetAllocations,
   replaceInvestmentSchedule,
   upsertHistoryEntry,
+  adjustMarginBalance,
+  getMargin,
 } from '@/lib/google-sheets';
 import { updateExpenseCategory, updateExpenseExcluded, updateExpenseOneOff, applyRuleToExisting, findRuleConflicts, upsertExpenseRule, bulkUpdateExpenseCategory, applyCategoryUpdates, upsertProjectionOverride, deleteProjectionOverride } from '@/lib/expenses/sheets';
 import { upsertCpfBalance, upsertRetirementOneOff, deleteRetirementOneOff } from '@/lib/retirement/sheets';
 import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
+import { toSGD } from '@/lib/fx';
 import { Holding, Transaction, TargetAllocationRow, InvestmentScheduleRow, ExpenseProjectionOverride, CpfBalance, RetirementOneOff, ExpenseRule } from '@/types';
 
 export async function upsertHoldingAction(data: Holding): Promise<void> {
@@ -42,6 +45,7 @@ export async function logTransactionAction(data: Omit<Transaction, 'id'>): Promi
     const oldShares = existing?.shares || 0;
     const oldAvg = existing?.avgCostLocal || 0;
     const newAvg = computeNewAvgCost(oldShares, oldAvg, data.shares, data.priceLocal);
+    const newMarginShares = (existing?.marginShares ?? 0) + (data.marginFlag ? data.shares : 0);
 
     await upsertHolding({
       ticker: data.ticker,
@@ -49,18 +53,38 @@ export async function logTransactionAction(data: Omit<Transaction, 'id'>): Promi
       shares: oldShares + data.shares,
       avgCostLocal: newAvg,
       currency: data.currency,
+      marginShares: newMarginShares,
     });
+
+    if (data.marginFlag) {
+      const { fxRates } = await fetchPricesAndFx();
+      const amountSGD = toSGD(data.shares * data.priceLocal, data.currency, fxRates);
+      await adjustMarginBalance('Default', amountSGD);
+    }
   } else if (data.type === 'SELL') {
     if (existing) {
       const newShares = existing.shares - data.shares;
+      // Computed before the delete/update branch so a full-close sell (position fully
+      // sold, holding row deleted) still repays margin from its proceeds — the checkbox
+      // is explicit per-sale intent, not conditional on whether the position survives it.
+      const sharesReducedFromMargin = Math.min(data.shares, existing.marginShares ?? 0);
+
       if (newShares <= 0) {
         await deleteHolding(data.ticker);
       } else {
+        const newMarginShares = (existing.marginShares ?? 0) - sharesReducedFromMargin;
         await upsertHolding({
           ...existing,
           shares: newShares,
+          marginShares: newMarginShares,
           // Avg cost doesn't change on SELL
         });
+      }
+
+      if (data.marginFlag && sharesReducedFromMargin > 0) {
+        const { fxRates } = await fetchPricesAndFx();
+        const proceedsSGD = toSGD(sharesReducedFromMargin * data.priceLocal, data.currency, fxRates);
+        await adjustMarginBalance('Default', -proceedsSGD);
       }
     }
   }
@@ -68,6 +92,7 @@ export async function logTransactionAction(data: Omit<Transaction, 'id'>): Promi
   revalidatePath('/dashboard');
   revalidatePath('/holdings');
   revalidatePath('/transactions');
+  revalidatePath('/cash');
 }
 
 export async function updateCashAction(amount: number): Promise<void> {
@@ -124,6 +149,27 @@ export async function recordSnapshotAction(): Promise<{ recorded: boolean; reaso
 
   revalidatePath('/history');
   return { recorded: true };
+}
+
+export async function repayMarginAction(amountSGD: number, cashAccount: string): Promise<void> {
+  const margin = await getMargin();
+  const outstandingSGD = margin.accounts.find((a) => a.account === 'Default')?.outstandingSGD ?? 0;
+
+  const reduction = Math.min(amountSGD, outstandingSGD);
+  const excess = amountSGD - reduction;
+
+  if (reduction > 0) {
+    await adjustMarginBalance('Default', -reduction);
+  }
+
+  if (excess > 0) {
+    const cash = await getCash();
+    const currentBalance = cash.accounts.find((a) => a.account === cashAccount)?.amount ?? 0;
+    await upsertCashAccount(cashAccount, currentBalance + excess);
+  }
+
+  revalidatePath('/cash');
+  revalidatePath('/dashboard');
 }
 
 export async function renameCashAccountAction(oldName: string, newName: string, amount: number): Promise<void> {

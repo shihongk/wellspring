@@ -38,7 +38,8 @@ export function DashboardClient({
   const equityWithGain = snapshot.holdings.filter((h) => h.unrealizedGainSGD != null);
   const totalGainSGD   = equityWithGain.reduce((s, h) => s + h.unrealizedGainSGD!, 0);
   const totalCostBasis = equityWithGain.reduce((s, h) => s + h.costBasisSGD, 0);
-  const allTimeReturnPct = totalCostBasis > 0 ? (totalGainSGD / totalCostBasis) * 100 : null;
+  const effectiveCostBasis = totalCostBasis - snapshot.outstandingMarginSGD;
+  const allTimeReturnPct = effectiveCostBasis > 0 ? (totalGainSGD / effectiveCostBasis) * 100 : null;
 
   // ── KPI: month-to-date ────────────────────────────────────────────────────────
   const thisMonth    = new Date().toISOString().slice(0, 7);
@@ -124,6 +125,11 @@ export function DashboardClient({
           <p className="text-xs text-gray-400">
             {stale ? 'Prices unavailable' : fetchedAt ? `Fetched ${formatDateTime(fetchedAt)}` : ''}
           </p>
+          {snapshot.outstandingMarginSGD > 0 && (
+            <p className="text-xs font-medium text-red-600">
+              Margin: -{formatSGD(snapshot.outstandingMarginSGD)}
+            </p>
+          )}
         </Card>
 
         <Card className="flex flex-col gap-1.5 p-3">
@@ -136,7 +142,9 @@ export function DashboardClient({
           ) : (
             <p className="text-2xl font-bold text-gray-400">—</p>
           )}
-          <p className="text-xs text-gray-400 mt-auto pt-2">Since purchase · cost basis</p>
+          <p className="text-xs text-gray-400 mt-auto pt-2">
+            {snapshot.outstandingMarginSGD > 0 ? 'Since purchase · net of margin' : 'Since purchase · cost basis'}
+          </p>
         </Card>
 
         <Card className="flex flex-col gap-1.5 p-3">
@@ -182,7 +190,7 @@ export function DashboardClient({
         <Card className="p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">History &amp; Attribution</h2>
           {chartData.length > 0 ? (
-            <HistoryClient chartData={chartData} breakdown={breakdown} />
+            <HistoryClient chartData={chartData} breakdown={breakdown} outstandingMarginSGD={snapshot.outstandingMarginSGD} />
           ) : (
             <p className="text-sm text-gray-400">
               No snapshots yet — click <span className="font-medium text-gray-600">Record Snapshot</span> above to start tracking.

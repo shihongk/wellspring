@@ -7,6 +7,7 @@ export interface Holding {
   shares: number;
   avgCostLocal: number;
   currency: Currency;
+  marginShares?: number;
 }
 
 export interface Transaction {
@@ -17,6 +18,7 @@ export interface Transaction {
   shares: number;
   priceLocal: number;
   currency: Currency;
+  marginFlag?: boolean;   // BUY: funded by margin. SELL: reduce margin from proceeds.
 }
 
 export interface CashAccount {
@@ -28,6 +30,11 @@ export interface CashAccount {
 export interface CashPosition {
   accounts: CashAccount[];
   SGD: number; // total
+}
+
+export interface MarginPosition {
+  accounts: { account: string; outstandingSGD: number }[];
+  totalSGD: number;
 }
 
 export interface TargetAllocationRow {
@@ -73,6 +80,7 @@ export interface PortfolioSnapshot {
     SGD: number;
     allocationPct: number | null;
   };
+  outstandingMarginSGD: number;
 }
 
 export interface PortfolioHistoryEntry {

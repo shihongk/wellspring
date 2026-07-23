@@ -39,6 +39,21 @@ describe('generateId', () => {
     const b = generateId('2026-03-09', 'GRAB SG', 12.5, 'Citi Rewards');
     expect(a).not.toBe(b);
   });
+
+  it('differs when balance differs, even with identical date+description+amount+account', () => {
+    // Two genuinely distinct same-day transactions can share this exact combination
+    // (e.g. two same-amount transfers to the same payee); their running balance
+    // never matches, so passing it disambiguates them.
+    const a = generateId('2026-03-12', 'Funds Transfer mBK-7623756967', 1000, 'UOB One', 14219.70);
+    const b = generateId('2026-03-12', 'Funds Transfer mBK-7623756967', 1000, 'UOB One', 13219.70);
+    expect(a).not.toBe(b);
+  });
+
+  it('omitting balance reproduces the original 4-arg hash (backward compatible with existing card-statement ids)', () => {
+    const withoutBalance = generateId('2026-03-09', 'GRAB SG', 12.5, 'UOB One');
+    const withNullBalance = generateId('2026-03-09', 'GRAB SG', 12.5, 'UOB One', null);
+    expect(withoutBalance).toBe(withNullBalance);
+  });
 });
 
 describe('parseAmount', () => {

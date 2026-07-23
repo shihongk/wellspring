@@ -279,6 +279,94 @@ xxxxxx0065
   });
 });
 
+describe('parseUOBDeposit — trailing boilerplate after the last transaction of a section', () => {
+  // Reproduces the real end-of-month pattern: "Interest Credit" is the last
+  // transaction before a sub-account section boundary. The boundary line (an
+  // "FX+" wallet header, or an "End of Transaction Detail" separator for accounts
+  // without a wallet) isn't a date anchor, so it used to become the trailing line
+  // of the still-open Interest Credit group, breaking the concat-float match and
+  // silently dropping the whole transaction — every month, for every account.
+  const textWithFxHeader = `
+Account Transaction Details
+One Account 779-XXX-XXX-X
+01 Feb
+BALANCE B/F
+9041.25
+28 Feb
+Interest Credit
+0.229,041.47
+Total2,652.1310,173.739,041.47
+FX+   761-939-932-7
+DateDescription
+`;
+
+  const textWithEndSeparator = `
+Account Transaction Details
+Lady's Savings A/c 779-XXX-XXX-X
+01 Jan
+BALANCE B/F
+73992.42
+31 Jan
+Interest Credit
+2.1773,994.59
+Total11.4064,002.1773,994.59
+------------------------------------------------------------ End of Transaction Detail
+`;
+
+  it('still captures Interest Credit when followed by an FX+ wallet section header', () => {
+    const result = parseUOBDeposit(textWithFxHeader, 'eStatement5.pdf');
+    expect(result).toHaveLength(1);
+    expect(result[0].description).toBe('Interest Credit');
+    expect(result[0].amount).toBe(0.22);
+    expect(result[0].balance).toBe(9041.47);
+    expect(result[0].direction).toBe('credit');
+  });
+
+  it('still captures Interest Credit when followed by an "End of Transaction Detail" separator', () => {
+    const result = parseUOBDeposit(textWithEndSeparator, "eStatement10.pdf");
+    expect(result).toHaveLength(1);
+    expect(result[0].description).toBe('Interest Credit');
+    expect(result[0].amount).toBe(2.17);
+    expect(result[0].balance).toBe(73994.59);
+  });
+});
+
+describe('parseUOBDeposit — two same-day transactions with identical description and amount', () => {
+  // Reproduces the real 12 Mar 2026 One Account statement: two separate "Funds
+  // Transfer mBK-7623756967" debits of exactly $1,000 on the same day. Since
+  // generateId previously hashed only date+description+amount+account, both
+  // produced the same id — the second was silently treated as a duplicate of the
+  // first and dropped during import (skipped via the existingIds check in
+  // pipeline.ts). Their running balances differ, which now disambiguates them.
+  const text = `
+Account Transaction Details
+One Account 779-XXX-XXX-X
+01 Mar
+BALANCE B/F
+15219.70
+12 Mar
+Funds Transfer
+mBK-7623756967
+1,000.0014,219.70
+12 Mar
+Funds Transfer
+mBK-7623756967
+1,000.0013,219.70
+`;
+
+  const result = parseUOBDeposit(text, 'eStatement6.pdf');
+
+  it('parses both transactions', () => {
+    expect(result).toHaveLength(2);
+    expect(result[0].balance).toBe(14219.70);
+    expect(result[1].balance).toBe(13219.70);
+  });
+
+  it('assigns each a distinct id', () => {
+    expect(result[0].id).not.toBe(result[1].id);
+  });
+});
+
 describe('parseUOBDeposit — year boundary', () => {
   const decText = `
 Period: 01 Dec 2025 to 01 Jan 2026

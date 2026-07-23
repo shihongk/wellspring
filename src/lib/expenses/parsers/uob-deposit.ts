@@ -115,24 +115,32 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
       continue;
     }
 
-    // Extract amount + balance — handle both real-PDF (concatenated) and test-fixture (separate lines)
-    const lastLine = rest[rest.length - 1] ?? '';
-    const concatMatch = CONCAT_FLOATS.exec(lastLine);
+    // Extract amount + balance — search the whole group for the concat-float line
+    // rather than assuming it's the last one. Trailing boilerplate (a sub-account
+    // header like "FX+ 761-939-932-7", or an "End of Transaction Detail" separator)
+    // isn't always filtered before grouping, and when it lands after the real amount
+    // line it used to become the new "last line", breaking the match and silently
+    // dropping the transaction (this is how month-end "Interest Credit" rows were
+    // being lost). A real amount line never legitimately follows the amount+balance
+    // pair, so everything from its index onward is either it or safely-ignorable junk.
+    const concatIdx = rest.findIndex(l => CONCAT_FLOATS.test(l));
 
     let balance: number;
     let amount: number;
-    let usedConcat: boolean;
+    let descSource: string[];
 
-    if (concatMatch) {
-      amount = parseAmount(concatMatch[1]);
-      balance = parseAmount(concatMatch[2]);
-      usedConcat = true;
+    if (concatIdx >= 0) {
+      const m = CONCAT_FLOATS.exec(rest[concatIdx])!;
+      amount = parseAmount(m[1]);
+      balance = parseAmount(m[2]);
+      descSource = rest.slice(0, concatIdx);
     } else {
-      const floats = rest.filter(l => FLOAT_RE.test(l));
-      if (floats.length < 2) continue;
-      balance = parseAmount(floats[floats.length - 1]);
-      amount = parseAmount(floats[floats.length - 2]);
-      usedConcat = false;
+      const floatIdxs = rest.reduce<number[]>((acc, l, i) => (FLOAT_RE.test(l) ? [...acc, i] : acc), []);
+      if (floatIdxs.length < 2) continue;
+      const [amountIdx, balanceIdx] = floatIdxs.slice(-2);
+      amount = parseAmount(rest[amountIdx]);
+      balance = parseAmount(rest[balanceIdx]);
+      descSource = rest.slice(0, amountIdx);
     }
 
     // Foreign-currency section (e.g. JPY wallet) — the concat/float logic above just
@@ -143,11 +151,7 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
       amount = parseAmount(SGD_EQUIVALENT.exec(sgdLine)![1]);
     }
 
-    const descLines = rest.filter(l =>
-      !REF_LINE.test(l) &&
-      !(usedConcat ? l === lastLine : FLOAT_RE.test(l)),
-    );
-    const description = descLines.join(' ').trim();
+    const description = descSource.filter(l => !REF_LINE.test(l)).join(' ').trim();
     if (!description) continue;
 
     const nominalDate = parseDDMMM(dateLine, year);
@@ -162,7 +166,7 @@ export function parseUOBDeposit(text: string, filename: string): ExpenseTransact
     prevBalance = balance;
 
     transactions.push({
-      id: generateId(date, description, amount, account),
+      id: generateId(date, description, amount, account, balance),
       date,
       postDate: date,
       description,

@@ -14,8 +14,16 @@ export function generateId(
   description: string,
   amount: number,
   account: string,
+  // Optional: two genuinely distinct transactions can share date+description+amount
+  // (e.g. two same-day transfers to the same payee for the same amount) — their
+  // running balance always differs, so passing it disambiguates them. Omitted by
+  // credit-card parsers, which have no running balance; omitting it reproduces the
+  // exact hash every existing card-statement row already uses.
+  balance?: number | null,
 ): string {
-  const key = `${date}|${description}|${amount}|${account}`;
+  const key = balance != null
+    ? `${date}|${description}|${amount}|${account}|${balance}`
+    : `${date}|${description}|${amount}|${account}`;
   return createHash('sha256').update(key).digest('hex').slice(0, 16);
 }
 

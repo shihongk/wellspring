@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride } from '@/types';
+import { ExpenseTransaction, ExpenseRule, ExpenseProjectionOverride, CpfBalance, CpfTransaction } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
 import { ruleMatches } from './categorize';
 
@@ -99,14 +99,7 @@ export async function appendExpenses(rows: ExpenseTransaction[]): Promise<void> 
   });
 }
 
-export async function getExpenseRules(): Promise<ExpenseRule[]> {
-  const { sheets, spreadsheetId } = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
-  });
-
-  const rows = res.data.values ?? [];
+function rowsToRules(rows: string[][]): ExpenseRule[] {
   if (rows.length <= 1) return [];
   return rows.slice(1)
     .filter(row => row[0] && (row[1] || row[5] === 'true'))
@@ -118,6 +111,16 @@ export async function getExpenseRules(): Promise<ExpenseRule[]> {
       ...(row[4] === 'debit' || row[4] === 'credit' ? { direction: row[4] as 'debit' | 'credit' } : {}),
       ...(row[5] === 'true' ? { exclude: true } : {}),
     }));
+}
+
+export async function getExpenseRules(): Promise<ExpenseRule[]> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
+  });
+
+  return rowsToRules(res.data.values ?? []);
 }
 
 export async function updateExpenseCategory(id: string, category: string): Promise<void> {
@@ -188,6 +191,24 @@ export async function applyRuleToExisting(rule: ExpenseRule): Promise<void> {
   });
 }
 
+export async function findRuleConflicts(rule: ExpenseRule): Promise<{
+  id: string; date: string; description: string; account: string; amount: number; currentCategory: string;
+}[]> {
+  if (!rule.category) return [];
+
+  const txs = await getExpenses();
+  return txs
+    .filter(tx => ruleMatches(tx, rule) && tx.category !== 'Other' && tx.category !== rule.category)
+    .map(tx => ({
+      id: tx.id,
+      date: tx.date,
+      description: tx.description,
+      account: tx.account,
+      amount: tx.amount,
+      currentCategory: tx.category,
+    }));
+}
+
 export async function bulkUpdateExpenseCategory(ids: string[], category: string): Promise<void> {
   if (ids.length === 0) return;
   const { sheets, spreadsheetId } = getSheetsClient();
@@ -213,6 +234,31 @@ export async function bulkUpdateExpenseCategory(ids: string[], category: string)
         values: [[category]],
       })),
     },
+  });
+}
+
+export async function applyCategoryUpdates(updates: { id: string; category: string }[]): Promise<void> {
+  if (updates.length === 0) return;
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAMES.EXPENSES}!A:A`,
+  });
+
+  const rows = res.data.values ?? [];
+  const categoryById = new Map(updates.map(u => [u.id, u.category]));
+  const data: Array<{ range: string; values: string[][] }> = [];
+  for (let i = 1; i < rows.length; i++) {
+    const category = categoryById.get(rows[i][0]);
+    if (category !== undefined) {
+      data.push({ range: `${SHEET_NAMES.EXPENSES}!I${i + 1}`, values: [[category]] });
+    }
+  }
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data },
   });
 }
 
@@ -350,4 +396,73 @@ export async function upsertExpenseRule(rule: ExpenseRule): Promise<void> {
     valueInputOption: 'RAW',
     requestBody: { values: [rowData] },
   });
+}
+
+export async function getExpensesPageData(): Promise<{
+  transactions: ExpenseTransaction[];
+  rules: ExpenseRule[];
+  overrides: ExpenseProjectionOverride[];
+  cpfBalance: CpfBalance | null;
+  cpfTransactions: CpfTransaction[];
+}> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: [
+      `${SHEET_NAMES.EXPENSES}!A:M`,
+      `${SHEET_NAMES.EXPENSE_RULES}!A:F`,
+      `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A:C`,
+      `${SHEET_NAMES.CPF_BALANCES}!A2:D`,
+      `${SHEET_NAMES.CPF_TRANSACTIONS}!A:F`,
+    ],
+  });
+
+  const [txRange, rulesRange, projRange, cpfBalRange, cpfTxRange] = res.data.valueRanges ?? [];
+
+  const txRows = txRange?.values ?? [];
+  const transactions: ExpenseTransaction[] = txRows.length <= 1 ? [] : txRows.slice(1).map(rowToTransaction);
+
+  const rules = rowsToRules(rulesRange?.values ?? []);
+
+  const projRows = projRange?.values ?? [];
+  const overrides: ExpenseProjectionOverride[] = projRows.length <= 1 ? [] : projRows.slice(1)
+    .filter(r => r[0] && r[1] && r[2])
+    .map(r => ({ month: r[0], category: r[1], amount: parseFloat(r[2]) }));
+
+  const cpfBalRows = cpfBalRange?.values ?? [];
+  const cpfBalances: CpfBalance[] = cpfBalRows
+    .filter(r => r[0])
+    .map(r => ({
+      date: r[0],
+      oa: parseFloat(r[1]) || 0,
+      sa: parseFloat(r[2]) || 0,
+      ma: parseFloat(r[3]) || 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const cpfBalance = cpfBalances.length > 0 ? cpfBalances[cpfBalances.length - 1] : null;
+
+  // Parsing (not the fetch itself, which is bundled into the batchGet above) is wrapped
+  // in try/catch to mirror getCpfTransactions()'s behavior of returning [] on failure.
+  let cpfTransactions: CpfTransaction[] = [];
+  try {
+    const cpfTxRows = cpfTxRange?.values ?? [];
+    if (cpfTxRows.length > 1) {
+      cpfTransactions = cpfTxRows.slice(1)
+        .filter(r => r[0] && r[1] != null && r[2] != null)
+        .map(r => ({
+          date: r[0],
+          code: r[1],
+          ref: r[2] ?? '',
+          oaChange: parseFloat(r[3] ?? '0'),
+          saChange: parseFloat(r[4] ?? '0'),
+          maChange: parseFloat(r[5] ?? '0'),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+  } catch {
+    cpfTransactions = [];
+  }
+
+  return { transactions, rules, overrides, cpfBalance, cpfTransactions };
 }

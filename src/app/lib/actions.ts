@@ -14,7 +14,7 @@ import {
   replaceInvestmentSchedule,
   upsertHistoryEntry,
 } from '@/lib/google-sheets';
-import { updateExpenseCategory, updateExpenseExcluded, updateExpenseOneOff, applyRuleToExisting, upsertExpenseRule, bulkUpdateExpenseCategory, upsertProjectionOverride, deleteProjectionOverride } from '@/lib/expenses/sheets';
+import { updateExpenseCategory, updateExpenseExcluded, updateExpenseOneOff, applyRuleToExisting, findRuleConflicts, upsertExpenseRule, bulkUpdateExpenseCategory, applyCategoryUpdates, upsertProjectionOverride, deleteProjectionOverride } from '@/lib/expenses/sheets';
 import { upsertCpfBalance, upsertRetirementOneOff, deleteRetirementOneOff } from '@/lib/retirement/sheets';
 import { computeNewAvgCost, computePortfolioSnapshot } from '@/lib/portfolio';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
@@ -150,9 +150,17 @@ export async function bulkUpdateCategoryAction(ids: string[], category: string):
   revalidatePath('/expenses');
 }
 
-export async function createExpenseRuleAction(rule: ExpenseRule): Promise<void> {
+export async function createExpenseRuleAction(rule: ExpenseRule): Promise<{
+  id: string; date: string; description: string; account: string; amount: number; currentCategory: string;
+}[]> {
   await upsertExpenseRule(rule);
   await applyRuleToExisting(rule);
+  revalidatePath('/expenses');
+  return findRuleConflicts(rule);
+}
+
+export async function resolveRuleConflictsAction(updates: { id: string; category: string }[]): Promise<void> {
+  await applyCategoryUpdates(updates);
   revalidatePath('/expenses');
 }
 

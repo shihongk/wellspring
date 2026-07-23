@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { CpfBalance, RetirementOneOff, CpfTransaction } from '@/types';
+import { CpfBalance, RetirementOneOff, CpfTransaction, Holding, ExpenseTransaction, ExpenseProjectionOverride, PortfolioHistoryEntry } from '@/types';
 import { SHEET_NAMES } from '@/lib/constants';
 
 function getSheetsClient() {
@@ -220,4 +220,135 @@ export async function getCpfTransactions(): Promise<CpfTransaction[]> {
   } catch {
     return [];
   }
+}
+
+// Duplicated from expenses/sheets.ts's rowToTransaction — importing it here would create
+// a circular dependency (expenses/sheets.ts would need to import from this file too if it
+// ever needed retirement data). Keep in sync if the Expenses sheet schema changes.
+function rowToExpenseTransaction(row: string[]): ExpenseTransaction {
+  return {
+    id: row[0],
+    date: row[1],
+    postDate: row[2],
+    description: row[3],
+    amount: parseFloat(row[4]),
+    direction: row[5] as 'debit' | 'credit',
+    balance: row[6] ? parseFloat(row[6]) : null,
+    account: row[7],
+    category: row[8],
+    sourceFile: row[9],
+    excluded: row[11] === 'true',
+    oneOff: row[12] === 'true',
+  };
+}
+
+export async function getRetirementPageData(): Promise<{
+  cpfBalance: CpfBalance | null;
+  oneOffs: RetirementOneOff[];
+  holdings: Holding[];
+  expenseTransactions: ExpenseTransaction[];
+  projectionOverrides: ExpenseProjectionOverride[];
+  portfolioHistory: PortfolioHistoryEntry[];
+  cpfTransactions: CpfTransaction[];
+}> {
+  const { sheets, spreadsheetId } = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: [
+      `${SHEET_NAMES.CPF_BALANCES}!A2:D`,
+      `${SHEET_NAMES.RETIREMENT_ONE_OFFS}!A2:E`,
+      `${SHEET_NAMES.HOLDINGS}!A:E`,
+      `${SHEET_NAMES.EXPENSES}!A:M`,
+      `${SHEET_NAMES.EXPENSE_PROJECTIONS}!A:C`,
+      `${SHEET_NAMES.PORTFOLIO_HISTORY}!A:E`,
+      `${SHEET_NAMES.CPF_TRANSACTIONS}!A:F`,
+    ],
+  });
+
+  const [
+    cpfBalRange,
+    oneOffsRange,
+    holdingsRange,
+    expensesRange,
+    projRange,
+    historyRange,
+    cpfTxRange,
+  ] = res.data.valueRanges ?? [];
+
+  const cpfBalRows = cpfBalRange?.values ?? [];
+  const cpfBalances: CpfBalance[] = cpfBalRows
+    .filter(r => r[0])
+    .map(r => ({
+      date: r[0],
+      oa: parseFloat(r[1]) || 0,
+      sa: parseFloat(r[2]) || 0,
+      ma: parseFloat(r[3]) || 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const cpfBalance = cpfBalances.length > 0 ? cpfBalances[cpfBalances.length - 1] : null;
+
+  const oneOffsRows = oneOffsRange?.values ?? [];
+  const oneOffs: RetirementOneOff[] = oneOffsRows
+    .filter(r => r[0])
+    .map(r => ({
+      id: r[0],
+      year: parseInt(r[1], 10),
+      description: r[2] ?? '',
+      amountSGD: parseFloat(r[3]) || 0,
+      inTodaysPrices: r[4] === 'TRUE',
+    }));
+
+  const holdingRows = holdingsRange?.values ?? [];
+  const holdings: Holding[] = holdingRows.length <= 1 ? [] : holdingRows.slice(1).map((row) => ({
+    ticker: row[0],
+    name: row[1],
+    shares: parseFloat(row[2]),
+    avgCostLocal: parseFloat(row[3]),
+    currency: row[4] as Holding['currency'],
+  }));
+
+  const expenseRows = expensesRange?.values ?? [];
+  const expenseTransactions: ExpenseTransaction[] = expenseRows.length <= 1 ? [] : expenseRows.slice(1).map(rowToExpenseTransaction);
+
+  const projRows = projRange?.values ?? [];
+  const projectionOverrides: ExpenseProjectionOverride[] = projRows.length <= 1 ? [] : projRows.slice(1)
+    .filter(r => r[0] && r[1] && r[2])
+    .map(r => ({ month: r[0], category: r[1], amount: parseFloat(r[2]) }));
+
+  const historyRows = historyRange?.values ?? [];
+  const portfolioHistory: PortfolioHistoryEntry[] = historyRows.length <= 1 ? [] : historyRows
+    .slice(1)
+    .map((row) => ({
+      date: row[0],
+      totalValueSGD: parseFloat(row[1]),
+      fxUSDSGD: parseFloat(row[2]),
+      fxHKDSGD: parseFloat(row[3]),
+      recordedAt: row[4],
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Parsing (not the fetch itself, which is bundled into the batchGet above) is wrapped
+  // in try/catch to mirror getCpfTransactions()'s behavior of returning [] on failure.
+  let cpfTransactions: CpfTransaction[] = [];
+  try {
+    const cpfTxRows = cpfTxRange?.values ?? [];
+    if (cpfTxRows.length > 1) {
+      cpfTransactions = cpfTxRows.slice(1)
+        .filter(r => r[0] && r[1] != null && r[2] != null)
+        .map(r => ({
+          date: r[0],
+          code: r[1],
+          ref: r[2] ?? '',
+          oaChange: parseFloat(r[3] ?? '0'),
+          saChange: parseFloat(r[4] ?? '0'),
+          maChange: parseFloat(r[5] ?? '0'),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+  } catch {
+    cpfTransactions = [];
+  }
+
+  return { cpfBalance, oneOffs, holdings, expenseTransactions, projectionOverrides, portfolioHistory, cpfTransactions };
 }

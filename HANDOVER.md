@@ -6,6 +6,34 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.9.4 (2026-07-23)
+
+Fixed excessive Google Sheets API read calls: `/expenses` and `/retirement` are both `force-dynamic` (intentional — financial data must never be statically cached), but each page fetched its data as a `Promise.all` of 5–7 **separate** `values.get()` HTTP calls instead of one batched call. Every navigation re-fired all of them with zero caching, and this hit a real `429 RESOURCE_EXHAUSTED` from Google's per-minute read quota during normal use. `/dashboard`'s `getDashboardData()` already did this correctly via `values.batchGet` — this replicates that pattern for the other two heavy pages.
+
+- **`src/lib/expenses/sheets.ts`** — new `getExpensesPageData()`: one `batchGet` over Expenses, ExpenseRules, ExpenseProjections, CpfBalances, CpfTransactions (5 calls → 1). Extracted `rowsToRules()` out of `getExpenseRules()` so both share the row→rule mapping without duplicating it. All individual getters (`getExpenses`, `getExpenseRules`, `getProjectionOverrides`) are unchanged and still used by Server Actions/scripts — this is a purely additive page-load fast path.
+- **`src/lib/retirement/sheets.ts`** — new `getRetirementPageData()`: one `batchGet` over CpfBalances, RetirementOneOffs, Holdings, Expenses, ExpenseProjections, PortfolioHistory, CpfTransactions (7 calls → 1). Includes a local `rowToExpenseTransaction()` duplicating the one in `expenses/sheets.ts` — avoids a circular import between the two `sheets.ts` files, deliberate small duplication rather than a shared abstraction.
+- **`src/app/expenses/page.tsx`** / **`src/app/retirement/page.tsx`** — swapped their multi-call `Promise.all` for the new single batched fetchers. `fetchPricesAndFx()` (Yahoo Finance, not Sheets) stays as a separate parallel call on the retirement page.
+- **Known trade-off:** `getCpfTransactions()`'s original try/catch wrapped the whole fetch (silently degrading to `[]` if the `CpfTransactions` sheet tab didn't exist — a fresh-install scenario). In the batched versions, only the *parsing* step is try/catch-wrapped; if that range itself were invalid, the whole page load would now fail instead of degrading gracefully. Not a live risk — the tab has existed and been populated throughout this project's life — but worth knowing if a fresh spreadsheet is ever provisioned from scratch.
+- **Verified:** one-off diff script confirmed both batched functions return byte-identical data to the individual getters they replace, on live data. `npx tsc --noEmit` clean, `npx vitest run` 214/214.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
+## Current State — v0.9.3 (2026-07-23)
+
+Fixed `applyRuleToExisting`'s silent no-op: a new category rule only auto-applied retroactively to rows currently at `'Other'`, so a rule created specifically to fix a row already mis-categorized by a lower-precedence rule (e.g. built-in `PAYNOW → Transfer`) did nothing to it — no error, no feedback.
+
+- **`src/lib/expenses/sheets.ts`** — `applyRuleToExisting` unchanged (still only touches `'Other'` rows). New `findRuleConflicts(rule)` returns matching rows whose category is neither `'Other'` nor the rule's target category. New `applyCategoryUpdates(updates)` batch-writes per-row category by id (reused by conflict resolution).
+- **`src/app/lib/actions.ts`** — `createExpenseRuleAction` now returns the conflict list (still auto-applies the safe `'Other'` rows first). New `resolveRuleConflictsAction(updates)` applies user-picked category overrides.
+- **UI (`ExpensesClient.tsx`)** — `handleSaveRule` is now async and awaits the conflict list; if non-empty, opens a new centered modal (first full-screen overlay modal in this file — no prior pattern existed, styled to match the indigo rule-creation card) listing each conflicting transaction (date, description, account, amount, current → new category) with a checkbox, default checked. "Apply selected" optimistically updates `localCategories` and calls `resolveRuleConflictsAction`; "Skip" dismisses without changes.
+- **Data repair (one-off):** the 3 `HOKKIEN MEE OTHR` PayNow transactions (previously stuck on `Transfer` from the built-in rule) recategorized to `Food & Drink` via a one-off script, matching the `HOKKIEN MEE OTHR → Food & Drink` user rule already in `ExpenseRules`.
+- **Tests:** no new sheets.ts tests added — matches existing convention (sheets.ts has no test file; it's a thin Sheets-API wrapper). `npx tsc --noEmit` and `npx vitest run` (214/214) both clean.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
 ## Current State — v0.9.2 (2026-07-22)
 
 Patch release. `Electronics`, `Insurance`, `Personal Care`, `Sports` (added v0.8.1/v0.9) had no case in `ExpensesClient.tsx`'s `getCategoryIconAndColor`, so they fell through to the generic "Other" `HelpCircle` icon. Added `Cpu`/violet, `ShieldCheck`/green, `Sparkles`/stone, `Dumbbell`/zinc respectively. Verified live for Electronics and Insurance (both have transactions in the current data range); Personal Care and Sports use the identical code path but have no transactions yet.

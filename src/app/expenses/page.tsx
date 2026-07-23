@@ -1,14 +1,11 @@
-import { getExpenses, getExpenseRules, getProjectionOverrides } from '@/lib/expenses/sheets';
-import { getLatestCpfBalance, getCpfTransactions } from '@/lib/retirement/sheets';
+import { getExpensesPageData } from '@/lib/expenses/sheets';
 import { deriveGrossMonthlySalary } from '@/lib/retirement/salary';
 import { ExpensesClient } from '@/components/expenses/ExpensesClient';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ExpensesPage() {
-  const [transactions, rules, overrides, cpfBalance, cpfTransactions] = await Promise.all([
-    getExpenses(), getExpenseRules(), getProjectionOverrides(), getLatestCpfBalance(), getCpfTransactions()
-  ]);
+  const { transactions, rules, overrides, cpfBalance, cpfTransactions } = await getExpensesPageData();
 
   const userAge = new Date().getFullYear() - 1984;
   const derivedGrossMonthlySalary = deriveGrossMonthlySalary(cpfTransactions, userAge);

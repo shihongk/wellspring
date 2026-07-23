@@ -10,6 +10,7 @@ import {
   setExpenseExcludedAction,
   setExpenseOneOffAction,
   createExpenseRuleAction,
+  resolveRuleConflictsAction,
   bulkUpdateCategoryAction,
 } from '@/app/lib/actions';
 import { ImportButton } from './ImportButton';
@@ -59,6 +60,15 @@ interface RuleFormState {
   matchAmount: boolean;
   amount: number;
   direction: 'debit' | 'credit';
+}
+
+interface RuleConflict {
+  id: string;
+  date: string;
+  description: string;
+  account: string;
+  amount: number;
+  currentCategory: string;
 }
 
 // ─── icon & category colours ──────────────────────────────────────────────────
@@ -383,7 +393,9 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
   const [hideTransfers, setHideTransfers] = useState(true);
   const [ruleForm, setRuleForm] = useState<RuleFormState | null>(null);
   const [applyConfirm, setApplyConfirm] = useState<{ triggeredId: string; category: string; matchIds: string[] } | null>(null);
-  
+  const [ruleConflicts, setRuleConflicts] = useState<{ category: string; rows: RuleConflict[] } | null>(null);
+  const [conflictSelected, setConflictSelected] = useState<Record<string, boolean>>({});
+
   const [tab, setTab] = useState<'spending' | 'income'>('spending');
   const [mainTab, setMainTab] = useState<'transactions' | 'cpf' | 'projections'>('transactions');
 
@@ -507,7 +519,7 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
     });
   }
 
-  function handleSaveRule() {
+  async function handleSaveRule() {
     if (!ruleForm?.merchant.trim()) return;
     const rule: ExpenseRule = {
       merchant: ruleForm.merchant.trim(),
@@ -535,8 +547,23 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
       setLocalExcluded(prev => ({ ...prev, ...excludeUpdates }));
     }
 
-    startTransition(() => { createExpenseRuleAction(rule); });
     setRuleForm(null);
+    const conflicts = await createExpenseRuleAction(rule);
+    if (conflicts.length > 0 && rule.category) {
+      setRuleConflicts({ category: rule.category, rows: conflicts });
+      setConflictSelected(Object.fromEntries(conflicts.map(c => [c.id, true])));
+    }
+  }
+
+  function handleResolveConflicts() {
+    if (!ruleConflicts) return;
+    const selectedIds = ruleConflicts.rows.filter(r => conflictSelected[r.id]).map(r => r.id);
+    if (selectedIds.length > 0) {
+      const category = ruleConflicts.category;
+      setLocalCategories(prev => ({ ...prev, ...Object.fromEntries(selectedIds.map(id => [id, category])) }));
+      startTransition(() => { resolveRuleConflictsAction(selectedIds.map(id => ({ id, category }))); });
+    }
+    setRuleConflicts(null);
   }
 
   const monthIdx = months.indexOf(selectedMonth);
@@ -758,6 +785,44 @@ export function ExpensesClient({ transactions, rules, overrides, cpfBalance, cpf
         </div>
       )}
         </>
+      )}
+
+      {ruleConflicts && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-800">Rule conflicts with existing categories</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                These transactions already have a different category. Choose which ones to recategorize as <strong>{ruleConflicts.category}</strong>.
+              </p>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {ruleConflicts.rows.map(row => (
+                <label key={row.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 cursor-pointer text-sm">
+                  <input
+                    type="checkbox"
+                    checked={conflictSelected[row.id] ?? true}
+                    onChange={e => setConflictSelected(prev => ({ ...prev, [row.id]: e.target.checked }))}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-slate-800 font-medium truncate">{row.description}</div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {new Date(row.date).toLocaleDateString('en-SG', { month: 'short', day: 'numeric', year: 'numeric' })} • {row.account} • {fmtSGD(row.amount)}
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-400 whitespace-nowrap">
+                    {row.currentCategory} <span className="text-indigo-400">→</span> {ruleConflicts.category}
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button onClick={() => setRuleConflicts(null)} className="px-3 py-1.5 text-slate-500 font-medium hover:bg-slate-100 rounded transition-colors text-sm">Skip</button>
+              <button onClick={handleResolveConflicts} className="px-3 py-1.5 bg-indigo-600 text-white font-medium rounded hover:bg-indigo-700 transition-colors text-sm">Apply selected</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,4 @@
-import { getLatestCpfBalance, getRetirementOneOffs, getCpfTransactions } from '@/lib/retirement/sheets';
-import { getHoldings, getPortfolioHistory } from '@/lib/google-sheets';
-import { getExpenses, getProjectionOverrides } from '@/lib/expenses/sheets';
+import { getRetirementPageData } from '@/lib/retirement/sheets';
 import { fetchPricesAndFx } from '@/lib/yahoo-finance';
 import { toSGD } from '@/lib/fx';
 import { deriveGrossMonthlySalary } from '@/lib/retirement/salary';
@@ -9,15 +7,12 @@ import { RetirementClient } from '@/components/retirement/RetirementClient';
 export const dynamic = 'force-dynamic';
 
 export default async function RetirementPage() {
-  const [cpfBalance, oneOffs, holdings, pricesData, expenseTransactions, projectionOverrides, portfolioHistory, cpfTransactions] = await Promise.all([
-    getLatestCpfBalance(),
-    getRetirementOneOffs(),
-    getHoldings(),
+  const [
+    { cpfBalance, oneOffs, holdings, expenseTransactions, projectionOverrides, portfolioHistory, cpfTransactions },
+    pricesData,
+  ] = await Promise.all([
+    getRetirementPageData(),
     fetchPricesAndFx(),
-    getExpenses(),
-    getProjectionOverrides(),
-    getPortfolioHistory(),
-    getCpfTransactions(),
   ]);
 
   const userAge = new Date().getFullYear() - 1984;

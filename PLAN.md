@@ -18,6 +18,40 @@
 | v0.9 data sweep | 2026-07-22 | ✅ Complete |
 | v0.9.1 | 2026-07-22 | ✅ Complete |
 | v0.9.2 | 2026-07-22 | ✅ Complete |
+| v0.9.3 | 2026-07-23 | ✅ Complete |
+| v0.9.4 | 2026-07-23 | ✅ Complete |
+
+---
+
+## v0.9.4 — Batch Sheets Reads Per Page (Complete)
+
+Patch release. `/expenses` and `/retirement` each fetched their data as 5–7 separate `values.get()` calls instead of one `batchGet`, unlike `/dashboard` which already batched correctly. Every navigation re-fired all of them (both pages are `force-dynamic`, intentionally uncached), and this hit a real `429 RESOURCE_EXHAUSTED` from Google's per-minute Sheets API read quota during normal use — not an edge case.
+
+### Changes shipped
+
+- **`src/lib/expenses/sheets.ts`** — new `getExpensesPageData()`, one `batchGet` replacing the 5 calls `/expenses` made (Expenses, ExpenseRules, ExpenseProjections, CpfBalances, CpfTransactions). Extracted `rowsToRules()` out of `getExpenseRules()` to share parsing without duplication.
+- **`src/lib/retirement/sheets.ts`** — new `getRetirementPageData()`, one `batchGet` replacing the 7 calls `/retirement` made (CpfBalances, RetirementOneOffs, Holdings, Expenses, ExpenseProjections, PortfolioHistory, CpfTransactions).
+- **`src/app/expenses/page.tsx`**, **`src/app/retirement/page.tsx`** — swapped to the new batched fetchers; `fetchPricesAndFx()` (Yahoo Finance) unaffected.
+- All individual getters (`getExpenses`, `getExpenseRules`, `getHoldings`, etc.) unchanged, still used by Server Actions and scripts — purely additive.
+
+### Verification
+One-off diff script confirmed both batched functions return identical data to the individual getters they replace. `npx tsc --noEmit` clean, `npx vitest run` 214/214.
+
+---
+
+## v0.9.3 — Rule Conflict Resolution Modal (Complete)
+
+Patch release. `applyRuleToExisting` only ever auto-applies a new category rule to rows currently at category `'Other'` — a deliberate safety gate so a new rule can't silently clobber a category someone chose on purpose. But this meant a row already mis-categorized by a low-precedence built-in rule (e.g. `PAYNOW → Transfer`) could never be fixed by a more specific new user rule — no error, no feedback, just silently stuck.
+
+### Changes shipped
+
+- **`src/lib/expenses/sheets.ts`** — `applyRuleToExisting` unchanged. New `findRuleConflicts(rule)` returns matching rows whose category is neither `'Other'` nor the rule's target. New `applyCategoryUpdates(updates)` batch-writes per-row category by id.
+- **`src/app/lib/actions.ts`** — `createExpenseRuleAction` now returns the conflict list. New `resolveRuleConflictsAction(updates)`.
+- **UI (`ExpensesClient.tsx`)** — `handleSaveRule` is async, awaits the conflict list; if non-empty, opens a centered overlay modal (first full-screen modal pattern in this file) listing each conflicting transaction with a checkbox (default checked), "current → new" category. "Apply selected" / "Skip".
+- **Data repair (one-off):** 3 `HOKKIEN MEE OTHR` PayNow transactions recategorized `Transfer → Food & Drink`, matching the user rule that prompted this fix.
+
+### Tests
+214/214 passing (no new sheets.ts tests — matches existing convention for that thin API-wrapper file). Verified live: creating a rule against a `Transfer`-categorized transaction correctly opens the modal, "Apply selected" updates it immediately and persists.
 
 ---
 

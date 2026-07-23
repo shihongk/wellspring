@@ -6,12 +6,14 @@ Ideas and future work. **Do not design here** — just capture intent. When read
 
 ## Up next (prioritised)
 
-1. **v0.9 — expense data integrity + rules engine** — in progress, see `PLAN.md` § v0.9.
-2. **v0.10 — margin financing** — direction agreed (negative-balance margin cash account + return reframed on net contributed capital); needs a design pass before build. See `PLAN.md` § v0.9 → "v0.10 (parked)".
+1. **v0.10 — margin financing** — direction agreed (negative-balance margin cash account + return reframed on net contributed capital); needs a design pass before build. See `PLAN.md` § v0.9 → "v0.10 (parked)".
 
 ---
 
 ## Backlog
+
+### Data integrity
+- **12 remaining balance-continuity issues** — v0.9's validator flags 12 rows (UOB One Account + UOB Lady's Savings, Jan–Jun 2026) as small OCR/digit-misread discrepancies (mostly under $2, one ~$1,000 case). Not yet hand-corrected against source PDFs — same workflow as the v0.8.1/v0.9 sweeps: find the row, view the source PDF page image, confirm ground truth, correct. Run `npx tsx scripts/_validate-full-sheet.ts` to get the current list (may have shifted if more statements were imported since).
 
 ### Portfolio / accounting
 

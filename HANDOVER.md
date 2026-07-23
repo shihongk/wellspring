@@ -26,6 +26,18 @@ Patch release fixing two bugs in the "Create Rule" flow, found while debugging a
 
 ---
 
+## Current State — v0.9 Data Sweep (2026-07-22)
+
+Not a numbered version — running the new v0.9 Phase 1 balance-continuity validator against real data (right after shipping v0.9) surfaced two real parser bugs and a data corruption issue in the UOB deposit accounts. Full detail in `PLAN.md` § "v0.9 Data Sweep".
+
+- **`uob-deposit.ts` bug 1** (bundled into commit `e11925a`) — JPY wallet sub-account rows were emitting a raw JPY balance that polluted the SGD continuity chain; now emit `balance: null` while still using the JPY figure internally for correct direction. `BALANCE B/F` rows now reseed `prevBalance` at every section boundary instead of being skipped.
+- **`uob-deposit.ts` bug 2** (commit `eb5d79b`) — the repeated per-page header text wasn't filtered, so it leaked into whichever transaction was still open when a statement page broke, corrupting that row's amount/balance parse and silently dropping it. Root cause of most of the "missing transaction" pattern the validator found.
+- **Data:** full rebuild of `UOB One Account` + `UOB Lady's Savings` — deleted 293 existing rows, reimported from complete Jan–Jun 2026 statement coverage (12 files) with both fixes applied → 474 rows. Validator issues: 57 → 20 → 12 remaining (small OCR digit-misreads, tracked in `ROADMAP.md` § Data integrity, not yet hand-corrected against PDFs).
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
 ## Current State — v0.9 Phase 3 (2026-07-21)
 
 Replaced the hardcoded `initialGrossMonthlySalary={9000}` / `initialNetMonthlyCashFlow={3000}` on the retirement page with values derived from real data. Manual overrides (`grossMonthlySalaryOverride`, `netMonthlyCashFlowOverride`) still take precedence and still persist in `localStorage`.

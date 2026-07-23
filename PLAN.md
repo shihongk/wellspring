@@ -15,6 +15,7 @@
 | v0.8 | 2026-05-07 | ✅ Complete |
 | v0.8.1 | 2026-07-21 | ✅ Complete |
 | v0.9 | 2026-07-21 | ✅ Complete |
+| v0.9 data sweep | 2026-07-22 | ✅ Complete |
 | v0.9.1 | 2026-07-22 | ✅ Complete |
 | v0.9.2 | 2026-07-22 | ✅ Complete |
 
@@ -30,6 +31,35 @@ Patch release. Four categories added in v0.8.1/v0.9 (`Electronics`, `Insurance`,
 
 ### Tests
 208/208 passing (unchanged — icon mapping has no test coverage). Verified live: Electronics and Insurance render correctly (both have transactions this data range); Personal Care and Sports use the identical code path but have no transactions yet to visually confirm against.
+
+---
+
+## v0.9 Data Sweep — UOB Parser Bugs + Account Rebuild (Complete)
+
+Not a numbered version — ad-hoc debugging triggered by running the new v0.9 Phase 1 validator against real data right after shipping v0.9. Two real parser bugs found and fixed, plus a full data rebuild for both UOB deposit accounts.
+
+### Bug 1 — JPY wallet balance pollution + `BALANCE B/F` reseed (bundled into commit `e11925a`, same commit as v0.9)
+
+- **`uob-deposit.ts`** — JPY FX+ wallet sub-account rows were emitting their raw JPY balance figure, which polluted the SGD balance-continuity chain (57 false-positive validator issues). Fixed: wallet rows now emit `balance: null` (excluded from continuity checks) while still using the JPY figure internally to compute debit/credit direction correctly. Separately, `BALANCE B/F` rows at the start of each sub-account section were being skipped without reseeding `prevBalance`, which could misdirection the first row of a new section (e.g. comparing a JPY balance against the prior SGD balance). Fixed: each `BALANCE B/F` row now reseeds `prevBalance` from its own printed figure.
+- **Test:** `uob-deposit.test.ts` — SGD → JPY wallet → SGD fixture, asserting wallet rows have `balance: null` and correct direction at both section boundaries.
+- Result: 57 → 20 validator issues.
+
+### Bug 2 — transactions dropped across page breaks (commit `eb5d79b`, separate from v0.9)
+
+- **`uob-deposit.ts`** — the repeated per-page header (`One Account   779-358-006-5 (continued)`) wasn't filtered, so it leaked into whichever transaction group was still open when a statement page broke. That corrupted the trailing-line amount/balance parse for that transaction and caused it to be silently dropped entirely (`floats.length < 2` → skipped). Fixed by extending `ACCOUNT_SECTION_HEADER` to match the real statement's header format, not just the test-fixture `A/c` format.
+- **Test:** new fixture reproducing a transaction whose group closes right at a page break.
+- Root cause of most of the remaining "missing transaction" pattern the validator was flagging.
+
+### Full account rebuild (one-off data operation, not code)
+
+Once both bugs were fixed, did a clean rebuild rather than a piecemeal per-file reimport (a first attempt at surgical reimport hit an orphaned-`sourceFile` row group with no matching PDF — generic auto-download filenames had been overwritten across sessions):
+
+1. Deleted all 293 existing rows for `UOB One Account` + `UOB Lady's Savings`.
+2. Reimported from 12 statements (One Account Jan–Jun 2026, Lady's Savings Jan–Jun 2026 — Shihong re-downloaded the missing/overwritten ones) → 474 new rows.
+3. Result: 20 → 12 validator issues remaining (see `ROADMAP.md` § Data integrity — these are small OCR digit-misreads needing PDF cross-check, same workflow as v0.8.1).
+
+### Tests
+208/208 passing. `npx tsc --noEmit` clean.
 
 ---
 

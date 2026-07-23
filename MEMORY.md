@@ -32,6 +32,6 @@ Instructions I give once and expect applied automatically. Edit this file betwee
 
 ## Project-specific
 
-- **Current Focus:** v0.1–v0.8 all shipped. Next work comes from ROADMAP.md backlog (no version currently in progress).
+- **Current Focus:** v0.1–v0.9.2 all shipped. Next work comes from ROADMAP.md backlog (no version currently in progress).
 - **Annual Fees:** When displaying annual fees, group them by card/account to deduplicate GST items. Omit the specific amount and description; only show the card name and date to track waivers.
 - **Expense Charts:** Keep the "Hide investment" filter alongside "Hide excluded" so the Investment category doesn't skew the visual overview.

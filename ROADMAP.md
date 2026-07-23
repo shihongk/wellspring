@@ -12,9 +12,6 @@ Ideas and future work. **Do not design here** — just capture intent. When read
 
 ## Backlog
 
-### Data integrity
-- **12 remaining balance-continuity issues** — v0.9's validator flags 12 rows (UOB One Account + UOB Lady's Savings, Jan–Jun 2026) as small OCR/digit-misread discrepancies (mostly under $2, one ~$1,000 case). Not yet hand-corrected against source PDFs — same workflow as the v0.8.1/v0.9 sweeps: find the row, view the source PDF page image, confirm ground truth, correct. Run `npx tsx scripts/_validate-full-sheet.ts` to get the current list (may have shifted if more statements were imported since).
-
 ### Portfolio / accounting
 
 ### Retirement projections — post-v0.7 improvements

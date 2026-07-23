@@ -56,10 +56,20 @@ Once both bugs were fixed, did a clean rebuild rather than a piecemeal per-file 
 
 1. Deleted all 293 existing rows for `UOB One Account` + `UOB Lady's Savings`.
 2. Reimported from 12 statements (One Account Jan–Jun 2026, Lady's Savings Jan–Jun 2026 — Shihong re-downloaded the missing/overwritten ones) → 474 new rows.
-3. Result: 20 → 12 validator issues remaining (see `ROADMAP.md` § Data integrity — these are small OCR digit-misreads needing PDF cross-check, same workflow as v0.8.1).
+3. Result: 20 → 12 validator issues remaining.
+
+### Bug 3 + 4 — Interest Credit dropped + duplicate same-day transactions (2026-07-23, commit `4f979a4`)
+
+Investigating the remaining 12 issues against source PDFs found they weren't OCR digit-misreads at all — two more real parser bugs, both in `uob-deposit.ts`:
+
+- **Interest Credit dropped every month, every account (10 of 12 issues)** — same failure mode as Bug 2: a trailing boilerplate line (an `FX+` wallet section header, or an `End of Transaction Detail` separator) wasn't filtered and became the new "last line" of the still-open Interest Credit group, corrupting its amount/balance parse. Fixed by searching the whole transaction group for the amount+balance line instead of assuming it's always last — general fix, not another one-off boilerplate regex.
+- **Duplicate same-day transactions collide (2 of 12 issues, the ~$1,000 cases)** — two genuinely distinct transactions sharing identical date+description+amount (e.g. two $1,000 transfers to the same payee) hashed to the same `generateId()` output, so the second was silently treated as a duplicate and dropped at import. `generateId()` in `src/lib/expenses/utils.ts` now accepts an optional `balance` parameter to disambiguate — two real transactions never share a running balance. Backward compatible: omitted (as every credit-card parser does, having no running balance) it reproduces the exact prior hash, so existing card-statement row ids are untouched.
+- **Tests:** two new fixtures in `uob-deposit.test.ts` (FX+ header and end-separator variants of the dropped-Interest-Credit bug; the Mar-12 duplicate-transaction case), plus two new `generateId` tests in `utils.test.ts`.
+- **Data:** rebuilt both accounts again — deleted 474 rows, reimported the same 12 statements with both fixes → 492 rows. All 12 monthly Interest Credit rows now present; both Mar-12 $1,000 transfers now present with distinct balances.
+- **Result: 12 → 0 validator issues.**
 
 ### Tests
-208/208 passing. `npx tsc --noEmit` clean.
+214/214 passing. `npx tsc --noEmit` clean.
 
 ---
 

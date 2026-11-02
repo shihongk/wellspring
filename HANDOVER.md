@@ -603,6 +603,7 @@ launchctl list | grep wellspring                                        # check 
 | 2823.HK | iShares FTSE A50 China Index ETF | HKEX | HKD |
 | 2838.HK | Hang Seng FTSE China 50 Index ETF | HKEX | HKD |
 | TSM | Taiwan Semiconductor Manufacturing | NYSE | USD |
+| GOOGL | Alphabet Inc. Class A | NASDAQ | USD |
 | CASH | Cash (SGD) | — | SGD |
 
 FX pairs: `USDSGD=X`, `HKDSGD=X`

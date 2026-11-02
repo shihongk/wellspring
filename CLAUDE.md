@@ -154,7 +154,7 @@ Tailwind v4. SGD display format: `S$1,234.56` (2 decimal places, thousands separ
 
 ## Holdings in Scope
 
-`BRK-B` (USD), `JK8.SI` (SGD), `2823.HK` (HKD), `2838.HK` (HKD), `TSM` (USD), `CASH` (SGD).
+`BRK-B` (USD), `JK8.SI` (SGD), `2823.HK` (HKD), `2838.HK` (HKD), `TSM` (USD), `GOOGL` (USD), `CASH` (SGD).
 FX pairs: `USDSGD=X`, `HKDSGD=X`.
 
 ---

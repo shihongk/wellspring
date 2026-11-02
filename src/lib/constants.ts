@@ -1,6 +1,6 @@
 import { Currency, ExpenseRule } from '@/types';
 
-export const EQUITY_TICKERS = ['BRK-B', 'JK8.SI', '2823.HK', '2838.HK', 'TSM'] as const;
+export const EQUITY_TICKERS = ['BRK-B', 'JK8.SI', '2823.HK', '2838.HK', 'TSM', 'GOOGL'] as const;
 export const ALL_TICKERS = [...EQUITY_TICKERS, 'CASH'] as const;
 export const FX_SYMBOLS = ['USDSGD=X', 'HKDSGD=X'] as const;
 
@@ -10,6 +10,7 @@ export const TICKER_NAME: Record<string, string> = {
   '2823.HK': 'iShares FTSE A50 China Index ETF',
   '2838.HK': 'Hang Seng FTSE China 50 Index ETF',
   'TSM':     'Taiwan Semiconductor Manufacturing',
+  'GOOGL':   'Alphabet Inc. Class A',
   'CASH':    'Cash (SGD)',
 };
 
@@ -19,6 +20,7 @@ export const TICKER_CURRENCY: Record<string, Currency> = {
   '2823.HK': 'HKD',
   '2838.HK': 'HKD',
   'TSM': 'USD',
+  'GOOGL': 'USD',
   'CASH': 'SGD',
 };
 

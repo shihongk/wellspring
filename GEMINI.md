@@ -165,7 +165,7 @@ Row 1 = header in all tabs. Data starts at row 2.
 
 ## Holdings in scope
 
-`BRK-B` (USD), `JK8.SI` (SGD), `2823.HK` (HKD), `2838.HK` (HKD), `TSM` (USD), `CASH` (SGD).
+`BRK-B` (USD), `JK8.SI` (SGD), `2823.HK` (HKD), `2838.HK` (HKD), `TSM` (USD), `GOOGL` (USD), `CASH` (SGD).
 FX pairs: `USDSGD=X`, `HKDSGD=X`.
 
 ---

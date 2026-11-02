@@ -6,6 +6,14 @@ Personal SGD-denominated investment portfolio tracker. Web app backed by Google 
 
 ---
 
+## Current State — v0.12 GOOGL Ticker (2026-11-02)
+
+Added `GOOGL` (Alphabet Class A, NASDAQ, USD; Yahoo symbol `GOOGL`) to `EQUITY_TICKERS`, `TICKER_NAME` and `TICKER_CURRENCY` in `src/lib/constants.ts`. It flows automatically into the transaction form, Yahoo price fetch, Holdings form, schedule dropdown and allocation editor (target defaults to 0%). Dashboard/history charts use the grey fallback colour (no `TICKER_COLORS` entry, same as TSM). Version number skips v0.11 by choice. `npx tsc --noEmit` clean; not exercised with a live transaction.
+
+**Next up:** nothing in progress. See `ROADMAP.md` for backlog.
+
+---
+
 ## Current State — v0.10 Margin Financing (2026-07-23)
 
 Margin-funded BUYs previously looked identical to cash-funded ones — shares and cost basis increased with nothing recorded to offset it, so net worth and "All-time Return" both overstated things as if the position were fully equity-funded. Shipped across 4 phases.

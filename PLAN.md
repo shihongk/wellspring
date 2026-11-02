@@ -21,6 +21,16 @@
 | v0.9.3 | 2026-07-23 | ✅ Complete |
 | v0.9.4 | 2026-07-23 | ✅ Complete |
 | v0.10 | 2026-07-23 | ✅ Complete |
+| v0.12 | 2026-11-02 | ✅ Complete |
+
+---
+
+## v0.12 — GOOGL Ticker (Complete)
+
+Added `GOOGL` (Alphabet Class A, NASDAQ, USD) as a tradable equity. Version number skips v0.11 by choice.
+
+- [x] `src/lib/constants.ts`: `GOOGL` added to `EQUITY_TICKERS`, `TICKER_NAME`, `TICKER_CURRENCY`
+- [x] Docs: holdings lists in `CLAUDE.md`, `GEMINI.md`, `HANDOVER.md`
 
 ---
 
